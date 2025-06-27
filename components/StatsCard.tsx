@@ -18,7 +18,8 @@ import {
   Zap,
   Star,
   Trophy,
-  Crown
+  Crown,
+  Share
 } from 'lucide-react-native';
 import { UserStats, Achievement } from '@/hooks/useGamification';
 
@@ -28,6 +29,7 @@ interface StatsCardProps {
   stats: UserStats;
   visible: boolean;
   onClose: () => void;
+  onShare?: () => void;
 }
 
 const getRarityColor = (rarity: Achievement['rarity']) => {
@@ -50,7 +52,7 @@ const getRarityIcon = (rarity: Achievement['rarity']) => {
   }
 };
 
-export default function StatsCard({ stats, visible, onClose }: StatsCardProps) {
+export default function StatsCard({ stats, visible, onClose, onShare }: StatsCardProps) {
   if (!visible) return null;
 
   const unlockedAchievements = stats.achievements.filter(a => a.unlockedAt);
@@ -74,9 +76,16 @@ export default function StatsCard({ stats, visible, onClose }: StatsCardProps) {
             {/* Header */}
             <View style={styles.header}>
               <Text style={styles.title}>Your Journey</Text>
-              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                <Text style={styles.closeButtonText}>✕</Text>
-              </TouchableOpacity>
+              <View style={styles.headerButtons}>
+                {onShare && (
+                  <TouchableOpacity onPress={onShare} style={styles.shareButton}>
+                    <Share size={18} color="white" />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                  <Text style={styles.closeButtonText}>✕</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             {/* Level & XP */}
@@ -240,6 +249,18 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     color: 'white',
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  shareButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   closeButton: {
     width: 30,

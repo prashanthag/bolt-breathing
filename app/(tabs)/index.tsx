@@ -34,6 +34,7 @@ import EnvironmentSelector from '@/components/EnvironmentSelector';
 import SocialBreathingRooms from '@/components/SocialBreathingRooms';
 import AIMoodDetector from '@/components/AIMoodDetector';
 import ChallengesPanel from '@/components/ChallengesPanel';
+import SocialSharingModal from '@/components/SocialSharingModal';
 import { useMoodDetection } from '@/hooks/useMoodDetection';
 import { useBreathingChallenges } from '@/hooks/useBreathingChallenges';
 import * as Haptics from 'expo-haptics';
@@ -73,7 +74,8 @@ export default function BreathingScreen() {
   const { 
     updateSessionStreak, 
     updateChallengeProgress,
-    challenges 
+    challenges,
+    streakData
   } = useBreathingChallenges();
   const [selectedPattern, setSelectedPattern] = useState<BreathingPattern | null>(null);
   const [customLabels, setCustomLabels] = useState({
@@ -110,6 +112,7 @@ export default function BreathingScreen() {
   const [showSocialRooms, setShowSocialRooms] = useState(false);
   const [showMoodDetector, setShowMoodDetector] = useState(false);
   const [showChallenges, setShowChallenges] = useState(false);
+  const [showSocialSharing, setShowSocialSharing] = useState(false);
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [socialRoom, setSocialRoom] = useState<any>(null);
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
@@ -913,6 +916,10 @@ export default function BreathingScreen() {
         stats={stats}
         visible={showStatsCard}
         onClose={() => setShowStatsCard(false)}
+        onShare={() => {
+          setShowStatsCard(false);
+          setShowSocialSharing(true);
+        }}
       />
 
       {/* Environment Selector */}
@@ -988,6 +995,15 @@ export default function BreathingScreen() {
           triggerHapticFeedback('success');
           console.log('Challenge reward claimed:', reward);
         }}
+      />
+
+      {/* Social Sharing Modal */}
+      <SocialSharingModal
+        visible={showSocialSharing}
+        onClose={() => setShowSocialSharing(false)}
+        stats={stats}
+        streakData={streakData}
+        achievements={stats.achievements}
       />
     </>
   );
