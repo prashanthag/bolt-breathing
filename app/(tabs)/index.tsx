@@ -270,7 +270,7 @@ export default function BreathingScreen() {
             paddingTop: insets.top + 20,
             paddingBottom: Platform.select({
               ios: insets.bottom > 0 ? insets.bottom + 90 : 90,
-              android: 90,
+              android: 120,
               default: 90,
             })
           }

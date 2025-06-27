@@ -15,13 +15,13 @@ export default function TabLayout() {
           borderTopColor: '#16213e',
           paddingBottom: Platform.select({
             ios: insets.bottom > 0 ? insets.bottom : 8,
-            android: 8,
+            android: 20,
             default: 8,
           }),
           paddingTop: 8,
           height: Platform.select({
             ios: insets.bottom > 0 ? 70 + insets.bottom : 70,
-            android: 70,
+            android: 90,
             default: 70,
           }),
         },
