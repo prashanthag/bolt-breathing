@@ -20,11 +20,19 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { Play, Pause, Square, RotateCcw, Plus, X, Edit3 } from 'lucide-react-native';
+import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3, Trophy, Eye, Users } from 'lucide-react-native';
 import { useBreathingPatterns, BreathingPattern } from '@/hooks/useBreathingPatterns';
+import { useGamification } from '@/hooks/useGamification';
+import { useAREnvironments } from '@/hooks/useAREnvironments';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import AchievementModal from '@/components/AchievementModal';
+import StatsCard from '@/components/StatsCard';
+import ARBreathingEnvironment from '@/components/ARBreathingEnvironment';
+import EnvironmentSelector from '@/components/EnvironmentSelector';
+import SocialBreathingRooms from '@/components/SocialBreathingRooms';
+import * as Haptics from 'expo-haptics';
 
 const { width, height } = Dimensions.get('window');
 
@@ -41,6 +49,22 @@ interface BreathingState {
 export default function BreathingScreen() {
   const insets = useSafeAreaInsets();
   const { patterns, loading, savePattern, deletePattern, resetDeletedPatterns } = useBreathingPatterns();
+  const { 
+    stats, 
+    newAchievements, 
+    addSessionXP, 
+    updateStreak, 
+    clearNewAchievements,
+    loading: statsLoading 
+  } = useGamification();
+  const { 
+    selectedEnvironment, 
+    availableEnvironments,
+    unlockedEnvironments,
+    allEnvironments,
+    selectEnvironment,
+    checkLevelUnlocks 
+  } = useAREnvironments();
   const [selectedPattern, setSelectedPattern] = useState<BreathingPattern | null>(null);
   const [customLabels, setCustomLabels] = useState({
     inhale: 'Inhale',
@@ -69,6 +93,14 @@ export default function BreathingScreen() {
   const [voiceHold2, setVoiceHold2] = useState('Hold');
   const [editingVoice, setEditingVoice] = useState<string | null>(null);
   const [countDirection, setCountDirection] = useState<'up' | 'down'>('down');
+  
+  // Gamification states
+  const [showStatsCard, setShowStatsCard] = useState(false);
+  const [showEnvironmentSelector, setShowEnvironmentSelector] = useState(false);
+  const [showSocialRooms, setShowSocialRooms] = useState(false);
+  const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
+  const [socialRoom, setSocialRoom] = useState<any>(null);
+  const [hapticsEnabled, setHapticsEnabled] = useState(true);
 
   const circleScale = useSharedValue(0.3);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -107,6 +139,7 @@ export default function BreathingScreen() {
   useEffect(() => {
     loadCustomLabels();
     loadCountDirection();
+    loadHapticsSettings();
   }, []);
 
   // Reload settings when screen comes into focus
@@ -135,6 +168,40 @@ export default function BreathingScreen() {
       }
     } catch (error) {
       console.log('Error loading count direction:', error);
+    }
+  };
+
+  const loadHapticsSettings = async () => {
+    try {
+      const savedHaptics = await AsyncStorage.getItem('hapticsEnabled');
+      if (savedHaptics !== null) {
+        setHapticsEnabled(JSON.parse(savedHaptics));
+      }
+    } catch (error) {
+      console.log('Error loading haptics settings:', error);
+    }
+  };
+
+  const triggerHapticFeedback = (type: 'light' | 'medium' | 'heavy' | 'success' = 'light') => {
+    if (!hapticsEnabled) return;
+    
+    try {
+      switch (type) {
+        case 'light':
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          break;
+        case 'medium':
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          break;
+        case 'heavy':
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+          break;
+        case 'success':
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          break;
+      }
+    } catch (error) {
+      console.log('Haptic feedback error:', error);
     }
   };
 
@@ -176,7 +243,7 @@ export default function BreathingScreen() {
     });
   };
 
-  const nextPhase = () => {
+  const nextPhase = async () => {
     setState(prevState => {
       const phases: BreathingPhase[] = ['inhale', 'hold1', 'exhale', 'hold2'];
       const currentIndex = phases.indexOf(prevState.phase);
@@ -188,6 +255,26 @@ export default function BreathingScreen() {
       const maxCycles = selectedPattern?.repetitions || 5;
       
       if (nextCycle >= maxCycles && nextPhase === 'inhale') {
+        // Session completed naturally - award XP
+        if (sessionStartTime) {
+          const sessionDuration = (new Date().getTime() - sessionStartTime.getTime()) / 1000;
+          runOnJS(triggerHapticFeedback)('success');
+          addSessionXP(sessionDuration, true).then(async (result) => {
+            console.log('Perfect session XP awarded:', result);
+            
+            // Check for environment unlocks
+            if (result.levelUp) {
+              const newEnvironments = await checkLevelUnlocks(stats.level + 1);
+              if (newEnvironments.length > 0) {
+                console.log('New environments unlocked:', newEnvironments);
+              }
+            }
+          }).catch(error => {
+            console.log('Error awarding perfect session XP:', error);
+          });
+          setSessionStartTime(null);
+        }
+        
         return {
           ...prevState,
           isActive: false,
@@ -221,6 +308,7 @@ export default function BreathingScreen() {
       
       if (!hasSpokenPhaseRef.current) {
         runOnJS(speak)(getPhaseText(prevState.phase));
+        runOnJS(triggerHapticFeedback)(prevState.phase === 'inhale' ? 'medium' : 'light');
         hasSpokenPhaseRef.current = true;
         return prevState;
       }
@@ -269,6 +357,8 @@ export default function BreathingScreen() {
 
   const startBreathing = () => {
     hasSpokenPhaseRef.current = false;
+    setSessionStartTime(new Date());
+    triggerHapticFeedback('medium');
     setState(prev => ({
       ...prev,
       isActive: true,
@@ -283,8 +373,30 @@ export default function BreathingScreen() {
     setState(prev => ({ ...prev, isPaused: !prev.isPaused }));
   };
 
-  const stopBreathing = () => {
+  const stopBreathing = async () => {
+    // Award XP if session was meaningful
+    if (sessionStartTime && state.cycle > 0) {
+      const sessionDuration = (new Date().getTime() - sessionStartTime.getTime()) / 1000;
+      const isPerfectSession = state.cycle >= (selectedPattern?.repetitions || 5);
+      
+      try {
+        const result = await addSessionXP(sessionDuration, isPerfectSession);
+        console.log('Session XP awarded:', result);
+        
+        // Check for environment unlocks
+        if (result.levelUp) {
+          const newEnvironments = await checkLevelUnlocks(stats.level + 1);
+          if (newEnvironments.length > 0) {
+            console.log('New environments unlocked:', newEnvironments);
+          }
+        }
+      } catch (error) {
+        console.log('Error awarding XP:', error);
+      }
+    }
+    
     hasSpokenPhaseRef.current = false;
+    setSessionStartTime(null);
     setState({
       phase: 'inhale',
       count: 0,
@@ -431,12 +543,54 @@ export default function BreathingScreen() {
 
   return (
     <>
-      <LinearGradient colors={['#667eea', '#764ba2']} style={styles.container}>
+      {/* AR Environment Background */}
+      <ARBreathingEnvironment
+        environment={selectedEnvironment}
+        breathingPhase={state.phase}
+        isActive={state.isActive && !state.isPaused}
+        intensity={state.isActive ? (state.count / (selectedPattern?.ratio[['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase)] || 1)) : 0}
+      />
+      
+      <LinearGradient 
+        colors={['transparent', 'rgba(102, 126, 234, 0.1)', 'transparent']} 
+        style={styles.container}
+      >
         <View style={[styles.content, { paddingTop: insets.top + 10, paddingBottom: Platform.select({ android: 130, default: 90 }) }]}>
           
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Breathe</Text>
+            <TouchableOpacity 
+              style={styles.statsButton}
+              onPress={() => setShowStatsCard(true)}
+            >
+              <BarChart3 size={20} color="white" />
+              <Text style={styles.levelBadge}>Lv.{stats.level}</Text>
+            </TouchableOpacity>
+            
+            <View style={styles.titleContainer}>
+              <Text style={styles.title}>Breathe</Text>
+              <Text style={styles.xpText}>{stats.xp} XP</Text>
+            </View>
+            
+            <View style={styles.headerButtons}>
+              <TouchableOpacity 
+                style={styles.socialButton}
+                onPress={() => setShowSocialRooms(true)}
+              >
+                <Users size={18} color="white" />
+                <Text style={styles.socialCount}>Live</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.achievementButton}
+                onPress={() => setShowStatsCard(true)}
+              >
+                <Trophy size={18} color="white" />
+                <Text style={styles.achievementCount}>
+                  {stats.achievements.filter(a => a.unlockedAt).length}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Pattern Selection - Recent 4 patterns only */}
@@ -513,10 +667,13 @@ export default function BreathingScreen() {
             
             <Text style={styles.patternInfo}>
               {selectedPattern.name} • {selectedPattern.ratio.join(':')}
+              {socialRoom && (
+                <Text style={styles.socialRoomInfo}> • 🌐 {socialRoom.name}</Text>
+              )}
             </Text>
           </View>
 
-          {/* Create Custom Pattern - Bottom Row */}
+          {/* Bottom Actions - Two Columns */}
           <View style={styles.bottomSection}>
             <TouchableOpacity 
               style={styles.createButton}
@@ -526,7 +683,17 @@ export default function BreathingScreen() {
               }}
             >
               <Plus size={20} color="white" />
-              <Text style={styles.createButtonText}>Create Custom Pattern</Text>
+              <Text style={styles.createButtonText}>Create Pattern</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.environmentButton}
+              onPress={() => setShowEnvironmentSelector(true)}
+            >
+              <Eye size={20} color="white" />
+              <Text style={styles.environmentButtonText}>
+                {selectedEnvironment.icon} {selectedEnvironment.name}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -683,6 +850,41 @@ export default function BreathingScreen() {
           </View>
         </View>
       )}
+
+      {/* Achievement Modal */}
+      <AchievementModal
+        visible={newAchievements.length > 0}
+        achievements={newAchievements}
+        onClose={clearNewAchievements}
+      />
+
+      {/* Stats Card */}
+      <StatsCard
+        stats={stats}
+        visible={showStatsCard}
+        onClose={() => setShowStatsCard(false)}
+      />
+
+      {/* Environment Selector */}
+      <EnvironmentSelector
+        visible={showEnvironmentSelector}
+        environments={allEnvironments}
+        selectedEnvironment={selectedEnvironment}
+        unlockedEnvironments={unlockedEnvironments}
+        userLevel={stats.level}
+        onSelect={selectEnvironment}
+        onClose={() => setShowEnvironmentSelector(false)}
+      />
+
+      {/* Social Breathing Rooms */}
+      <SocialBreathingRooms
+        visible={showSocialRooms}
+        onClose={() => setShowSocialRooms(false)}
+        onJoinRoom={(room) => {
+          setSocialRoom(room);
+          triggerHapticFeedback('success');
+        }}
+      />
     </>
   );
 }
@@ -702,8 +904,76 @@ const styles = StyleSheet.create({
   },
   resetButtonText: { color: 'white', fontSize: 16, fontWeight: '600' },
   
-  header: { alignItems: 'center', marginBottom: 20 },
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: 20,
+    paddingHorizontal: 5,
+  },
+  titleContainer: {
+    alignItems: 'center',
+    flex: 1,
+  },
   title: { fontSize: 28, fontWeight: '700', color: 'white' },
+  xpText: { 
+    fontSize: 14, 
+    color: 'rgba(255, 255, 255, 0.8)', 
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  statsButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  levelBadge: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  socialButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  socialCount: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  achievementButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  achievementCount: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '600',
+  },
   
   patternSection: { marginBottom: 20 },
   patternRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
@@ -745,15 +1015,36 @@ const styles = StyleSheet.create({
   
   createButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 25,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    flex: 1,
   },
-  createButtonText: { color: 'white', fontSize: 16, fontWeight: '600' },
+  createButtonText: { color: 'white', fontSize: 14, fontWeight: '600' },
+  
+  environmentButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 25,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    flex: 1,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  environmentButtonText: { 
+    color: 'white', 
+    fontSize: 12, 
+    fontWeight: '600',
+    numberOfLines: 1,
+  },
   
   circleContainer: {
     justifyContent: 'center',
@@ -798,10 +1089,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   patternInfo: { color: 'rgba(255, 255, 255, 0.8)', fontSize: 14, textAlign: 'center' },
+  socialRoomInfo: { color: '#10b981', fontWeight: '600' },
   
   bottomSection: {
     paddingTop: 10,
     paddingBottom: 10,
+    flexDirection: 'row',
+    gap: 12,
   },
   
   // Modal styles
