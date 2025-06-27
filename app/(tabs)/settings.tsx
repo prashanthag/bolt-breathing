@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,90 +10,91 @@ import {
   Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Save, Info, Volume2, CircleCheck as CheckCircle } from 'lucide-react-native';
+import { Save, Info, Volume2, CircleCheck as CheckCircle, Languages } from 'lucide-react-native';
 import { useBreathingPatterns } from '@/hooks/useBreathingPatterns';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+type Language = 'english' | 'kannada' | 'hindi';
+
+interface LanguageLabels {
+  english: { inhale: string; hold: string; exhale: string; };
+  kannada: { inhale: string; hold: string; exhale: string; };
+  hindi: { inhale: string; hold: string; exhale: string; };
+}
+
+const LANGUAGE_LABELS: LanguageLabels = {
+  english: { inhale: 'Inhale', hold: 'Hold', exhale: 'Exhale' },
+  kannada: { inhale: 'ಶ್ವಾಸ ತೆಗೆ', hold: 'ಹಿಡಿ', exhale: 'ಶ್ವಾಸ ಬಿಡು' },
+  hindi: { inhale: 'सांस लें', hold: 'रोकें', exhale: 'सांस छोड़ें' }
+};
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { savePattern } = useBreathingPatterns();
-  const [patternName, setPatternName] = useState('');
-  const [inhale, setInhale] = useState('4');
-  const [hold1, setHold1] = useState('4');
-  const [exhale, setExhale] = useState('4');
-  const [hold2, setHold2] = useState('4');
-  const [cycles, setCycles] = useState('5');
+  const [selectedLanguage, setSelectedLanguage] = useState<Language>('english');
+  const [customLabels, setCustomLabels] = useState({
+    inhale: 'Inhale',
+    hold: 'Hold', 
+    exhale: 'Exhale'
+  });
+  const [countDirection, setCountDirection] = useState<'up' | 'down'>('down');
   const [isSaving, setIsSaving] = useState(false);
 
-  const saveCustomPattern = async () => {
-    // Validate inputs
-    const values = [inhale, hold1, exhale, hold2];
-    const isValid = values.every(val => {
-      const num = parseInt(val);
-      return !isNaN(num) && num >= 0 && num <= 20;
-    });
+  useEffect(() => {
+    loadSettings();
+  }, []);
 
-    if (!isValid) {
-      Alert.alert(
-        'Invalid Input',
-        'Please enter valid numbers between 0 and 20 for all timing fields.'
-      );
-      return;
+  const loadSettings = async () => {
+    try {
+      const savedLanguage = await AsyncStorage.getItem('selectedLanguage');
+      const savedLabels = await AsyncStorage.getItem('customLabels');
+      const savedDirection = await AsyncStorage.getItem('countDirection');
+      
+      if (savedLanguage) {
+        setSelectedLanguage(savedLanguage as Language);
+      }
+      if (savedLabels) {
+        setCustomLabels(JSON.parse(savedLabels));
+      }
+      if (savedDirection) {
+        setCountDirection(savedDirection as 'up' | 'down');
+      }
+    } catch (error) {
+      console.log('Error loading settings:', error);
     }
+  };
 
-    if (!patternName.trim()) {
-      Alert.alert(
-        'Pattern Name Required',
-        'Please enter a name for your custom breathing pattern.'
-      );
-      return;
-    }
-
+  const saveLanguageSettings = async () => {
     setIsSaving(true);
     try {
-      const ratio: [number, number, number, number] = [
-        parseInt(inhale),
-        parseInt(hold1),
-        parseInt(exhale),
-        parseInt(hold2)
-      ];
-
-      await savePattern(patternName.trim(), ratio);
+      await AsyncStorage.setItem('selectedLanguage', selectedLanguage);
+      await AsyncStorage.setItem('customLabels', JSON.stringify(customLabels));
+      await AsyncStorage.setItem('countDirection', countDirection);
       
       Alert.alert(
-        'Pattern Saved!',
-        `Your custom breathing pattern "${patternName}" has been saved and is now available on the main screen.`,
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              // Reset form
-              setPatternName('');
-              setInhale('4');
-              setHold1('4');
-              setExhale('4');
-              setHold2('4');
-            }
-          }
-        ]
+        'Settings Saved!',
+        'Your preferences have been saved.',
+        [{ text: 'OK' }]
       );
     } catch (error) {
       Alert.alert(
         'Save Failed',
-        'There was an error saving your pattern. Please try again.'
+        'There was an error saving your settings. Please try again.'
       );
     } finally {
       setIsSaving(false);
     }
   };
 
+  const selectLanguage = (language: Language) => {
+    setSelectedLanguage(language);
+    setCustomLabels(LANGUAGE_LABELS[language]);
+  };
+
   const resetToDefaults = () => {
-    setPatternName('');
-    setInhale('4');
-    setHold1('4');
-    setExhale('4');
-    setHold2('4');
-    setCycles('5');
+    setSelectedLanguage('english');
+    setCustomLabels(LANGUAGE_LABELS.english);
+    setCountDirection('down');
   };
 
   return (
@@ -117,88 +118,130 @@ export default function SettingsScreen() {
       >
         <View style={styles.header}>
           <Text style={styles.title}>Settings</Text>
-          <Text style={styles.subtitle}>Create your custom breathing patterns</Text>
+          <Text style={styles.subtitle}>Customize your breathing experience</Text>
         </View>
 
-        {/* Custom Pattern Section */}
+        {/* Count Direction Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Create Custom Pattern</Text>
+          <View style={styles.infoHeader}>
+            <Text style={styles.sectionTitle}>Count Direction</Text>
+          </View>
           <Text style={styles.sectionDescription}>
-            Design your own breathing pattern with custom timing and save it for future use
+            Choose how numbers are counted during breathing phases
+          </Text>
+
+          <View style={styles.optionRow}>
+            <TouchableOpacity
+              style={[
+                styles.optionButton,
+                countDirection === 'up' && styles.selectedOption
+              ]}
+              onPress={() => setCountDirection('up')}
+            >
+              <Text style={[
+                styles.optionText,
+                countDirection === 'up' && styles.selectedOptionText
+              ]}>
+                Count Up (1, 2, 3, 4)
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.optionButton,
+                countDirection === 'down' && styles.selectedOption
+              ]}
+              onPress={() => setCountDirection('down')}
+            >
+              <Text style={[
+                styles.optionText,
+                countDirection === 'down' && styles.selectedOptionText
+              ]}>
+                Count Down (4, 3, 2, 1)
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Language Support Section */}
+        <View style={styles.section}>
+          <View style={styles.infoHeader}>
+            <Languages size={20} color="white" />
+            <Text style={styles.sectionTitle}>Language Support</Text>
+          </View>
+          <Text style={styles.sectionDescription}>
+            Choose your preferred language for voice guidance during breathing exercises
+          </Text>
+
+          <View style={styles.languageContainer}>
+            {Object.entries(LANGUAGE_LABELS).map(([key, labels]) => (
+              <TouchableOpacity
+                key={key}
+                style={[
+                  styles.languageOption,
+                  selectedLanguage === key && styles.selectedLanguage
+                ]}
+                onPress={() => selectLanguage(key as Language)}
+              >
+                <View style={styles.languageInfo}>
+                  <Text style={styles.languageName}>
+                    {key === 'english' ? 'English' : key === 'kannada' ? 'ಕನ್ನಡ (Kannada)' : 'हिंदी (Hindi)'}
+                  </Text>
+                  <Text style={styles.languageExample}>
+                    {labels.inhale} • {labels.hold} • {labels.exhale}
+                  </Text>
+                </View>
+                {selectedLanguage === key && (
+                  <CheckCircle size={20} color="white" />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={styles.sectionTitle} style={{marginTop: 25, marginBottom: 8}}>Custom Voice Prompts</Text>
+          <Text style={styles.sectionDescription}>
+            Customize what the app says during each breathing phase
           </Text>
 
           <View style={styles.inputContainer}>
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Pattern Name</Text>
+              <Text style={styles.inputLabel}>Inhale Prompt</Text>
               <TextInput
                 style={styles.input}
-                value={patternName}
-                onChangeText={setPatternName}
-                placeholder="e.g., My Relaxing Pattern"
+                value={customLabels.inhale}
+                onChangeText={(text) => setCustomLabels(prev => ({...prev, inhale: text}))}
+                placeholder="e.g., Inhale through left nose"
                 placeholderTextColor="rgba(255, 255, 255, 0.5)"
               />
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Inhale (seconds)</Text>
+              <Text style={styles.inputLabel}>Hold Prompt</Text>
               <TextInput
                 style={styles.input}
-                value={inhale}
-                onChangeText={setInhale}
-                keyboardType="numeric"
-                placeholder="4"
+                value={customLabels.hold}
+                onChangeText={(text) => setCustomLabels(prev => ({...prev, hold: text}))}
+                placeholder="e.g., Hold gently"
                 placeholderTextColor="rgba(255, 255, 255, 0.5)"
               />
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Hold after inhale (seconds)</Text>
+              <Text style={styles.inputLabel}>Exhale Prompt</Text>
               <TextInput
                 style={styles.input}
-                value={hold1}
-                onChangeText={setHold1}
-                keyboardType="numeric"
-                placeholder="4"
+                value={customLabels.exhale}
+                onChangeText={(text) => setCustomLabels(prev => ({...prev, exhale: text}))}
+                placeholder="e.g., Exhale slowly through mouth"
                 placeholderTextColor="rgba(255, 255, 255, 0.5)"
               />
             </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Exhale (seconds)</Text>
-              <TextInput
-                style={styles.input}
-                value={exhale}
-                onChangeText={setExhale}
-                keyboardType="numeric"
-                placeholder="4"
-                placeholderTextColor="rgba(255, 255, 255, 0.5)"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Hold after exhale (seconds)</Text>
-              <TextInput
-                style={styles.input}
-                value={hold2}
-                onChangeText={setHold2}
-                keyboardType="numeric"
-                placeholder="4"
-                placeholderTextColor="rgba(255, 255, 255, 0.5)"
-              />
-            </View>
-          </View>
-
-          <View style={styles.patternPreview}>
-            <Text style={styles.previewLabel}>Pattern Preview:</Text>
-            <Text style={styles.previewText}>
-              {patternName || 'Unnamed Pattern'} • {inhale}:{hold1}:{exhale}:{hold2}
-            </Text>
           </View>
 
           <View style={styles.buttonContainer}>
             <TouchableOpacity 
               style={[styles.primaryButton, isSaving && styles.disabledButton]} 
-              onPress={saveCustomPattern}
+              onPress={saveLanguageSettings}
               disabled={isSaving}
             >
               {isSaving ? (
@@ -208,13 +251,13 @@ export default function SettingsScreen() {
               ) : (
                 <>
                   <Save size={20} color="white" />
-                  <Text style={styles.buttonText}>Save Custom Pattern</Text>
+                  <Text style={styles.buttonText}>Save Language Settings</Text>
                 </>
               )}
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.secondaryButton} onPress={resetToDefaults}>
-              <Text style={styles.secondaryButtonText}>Clear Form</Text>
+              <Text style={styles.secondaryButtonText}>Reset to English</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -468,5 +511,64 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.9)',
     lineHeight: 18,
+  },
+  languageContainer: {
+    gap: 12,
+    marginBottom: 20,
+  },
+  languageOption: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  selectedLanguage: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  languageInfo: {
+    flex: 1,
+  },
+  languageName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+    marginBottom: 4,
+  },
+  languageExample: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  optionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  optionButton: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  selectedOption: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  optionText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.8)',
+    textAlign: 'center',
+  },
+  selectedOptionText: {
+    color: 'white',
+    fontWeight: '600',
   },
 });
