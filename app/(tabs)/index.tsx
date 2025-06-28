@@ -20,12 +20,13 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3, ArrowUp, ArrowDown, Trophy, Award } from 'lucide-react-native';
+import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3, ArrowUp, ArrowDown, Trophy, Award, Volume2, VolumeX, Download, Sun, Moon, Zap, Turtle } from 'lucide-react-native';
 import { useBreathingPatterns, BreathingPattern } from '@/hooks/useBreathingPatterns';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
+import { Audio } from 'expo-av';
 
 const { width, height } = Dimensions.get('window');
 
@@ -87,6 +88,26 @@ export default function BreathingScreen() {
   // Achievements state
   const [achievements, setAchievements] = useState<string[]>([]);
   const [showAchievement, setShowAchievement] = useState<string | null>(null);
+  
+  // Session summary state
+  const [showSessionSummary, setShowSessionSummary] = useState(false);
+  const [lastSessionSummary, setLastSessionSummary] = useState<{
+    duration: number;
+    cycles: number;
+    pattern: string;
+    breathsCompleted: number;
+  } | null>(null);
+  
+  // Background sounds state
+  const [backgroundSoundsEnabled, setBackgroundSoundsEnabled] = useState(false);
+  const [currentSound, setCurrentSound] = useState<'rain' | 'ocean' | 'forest' | 'none'>('none');
+  const soundRef = useRef<Audio.Sound | null>(null);
+  
+  // Theme state
+  const [isDarkTheme, setIsDarkTheme] = useState(true);
+  
+  // Breathing rate state (multiplier for timing - lower = slower, higher = faster)
+  const [breathingRate, setBreathingRate] = useState(1.0);
 
   const circleScale = useSharedValue(0.3);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -129,6 +150,19 @@ export default function BreathingScreen() {
     loadCountDirection();
     loadSessionStats();
     loadAchievements();
+    loadSoundSettings();
+    loadThemeSettings();
+    loadBreathingRate();
+    setupAudio();
+  }, []);
+
+  // Cleanup sounds on unmount
+  useEffect(() => {
+    return () => {
+      if (soundRef.current) {
+        soundRef.current.unloadAsync();
+      }
+    };
   }, []);
 
   // Reload settings when screen comes into focus
@@ -182,6 +216,279 @@ export default function BreathingScreen() {
     } catch (error) {
       console.log('Error saving session stats:', error);
     }
+  };
+
+  // Setup audio system
+  const setupAudio = async () => {
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        staysActiveInBackground: false,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+    } catch (error) {
+      console.log('Error setting up audio:', error);
+    }
+  };
+
+  // Load sound settings
+  const loadSoundSettings = async () => {
+    try {
+      const soundEnabled = await AsyncStorage.getItem('backgroundSoundsEnabled');
+      const savedSound = await AsyncStorage.getItem('currentSound');
+      
+      if (soundEnabled !== null) {
+        setBackgroundSoundsEnabled(JSON.parse(soundEnabled));
+      }
+      if (savedSound) {
+        setCurrentSound(savedSound as typeof currentSound);
+      }
+    } catch (error) {
+      console.log('Error loading sound settings:', error);
+    }
+  };
+
+  // Save sound settings
+  const saveSoundSettings = async (enabled: boolean, sound: typeof currentSound) => {
+    try {
+      await AsyncStorage.setItem('backgroundSoundsEnabled', JSON.stringify(enabled));
+      await AsyncStorage.setItem('currentSound', sound);
+    } catch (error) {
+      console.log('Error saving sound settings:', error);
+    }
+  };
+
+  // Generate tone for background sound (simple implementation)
+  const playBackgroundSound = async () => {
+    try {
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+      }
+      
+      if (currentSound !== 'none' && backgroundSoundsEnabled) {
+        // For demo purposes, we'll use a simple generated tone
+        // In a real app, you'd load actual audio files
+        const { sound } = await Audio.Sound.createAsync(
+          // Generate a simple tone based on sound type
+          { uri: generateSoundData(currentSound) },
+          { isLooping: true, volume: 0.3 }
+        );
+        
+        soundRef.current = sound;
+        await sound.playAsync();
+      }
+    } catch (error) {
+      console.log('Error playing background sound:', error);
+    }
+  };
+
+  // Generate simple sound data (placeholder for actual audio files)
+  const generateSoundData = (soundType: string): string => {
+    // This is a placeholder - in a real app you'd have actual audio files
+    // For now, return a data URI for a simple tone
+    return `data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmETCD2a2/LNeSsFJYDN8tiDOAgOWKve6KNMEAg=`; // Sample base64 audio data
+  };
+
+  // Stop background sound
+  const stopBackgroundSound = async () => {
+    try {
+      if (soundRef.current) {
+        await soundRef.current.stopAsync();
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+    } catch (error) {
+      console.log('Error stopping background sound:', error);
+    }
+  };
+
+  // Toggle background sounds
+  const toggleBackgroundSounds = async () => {
+    const newEnabled = !backgroundSoundsEnabled;
+    setBackgroundSoundsEnabled(newEnabled);
+    await saveSoundSettings(newEnabled, currentSound);
+    
+    if (newEnabled && state.isActive) {
+      playBackgroundSound();
+    } else {
+      stopBackgroundSound();
+    }
+    
+    triggerHapticFeedback('light');
+  };
+
+  // Change background sound
+  const changeBackgroundSound = async (newSound: typeof currentSound) => {
+    setCurrentSound(newSound);
+    await saveSoundSettings(backgroundSoundsEnabled, newSound);
+    
+    if (backgroundSoundsEnabled && state.isActive) {
+      await stopBackgroundSound();
+      if (newSound !== 'none') {
+        playBackgroundSound();
+      }
+    }
+  };
+
+  // Export stats functionality
+  const exportStats = () => {
+    const exportData = {
+      totalSessions: sessionStats.totalSessions,
+      todaySessions: sessionStats.todaySessions,
+      currentStreak: sessionStats.currentStreak,
+      achievements: achievements,
+      lastSessionDate: sessionStats.lastSessionDate,
+      exportDate: new Date().toISOString(),
+      appVersion: '1.0.0'
+    };
+
+    const statsText = `
+Breathing App Statistics
+========================
+Export Date: ${new Date().toLocaleDateString()}
+
+📊 Session Stats:
+• Total Sessions: ${sessionStats.totalSessions}
+• Today's Sessions: ${sessionStats.todaySessions}
+• Current Streak: ${sessionStats.currentStreak} days
+• Last Session: ${sessionStats.lastSessionDate ? sessionStats.lastSessionDate.toLocaleDateString() : 'None'}
+
+🏆 Achievements Unlocked (${achievements.length}):
+${achievements.map(achievement => {
+  const achievementNames = {
+    'first_session': '🌟 First Steps',
+    'streak_3': '🔥 Three Day Streak',
+    'streak_7': '⚡ Week Warrior',
+    'sessions_10': '💫 Ten Sessions',
+    'sessions_25': '🌙 Quarter Century',
+    'sessions_50': '⭐ Half Century',
+    'daily_5': '🌅 Daily Five',
+    'long_session': '🧘 Deep Breather'
+  };
+  return `• ${achievementNames[achievement] || achievement}`;
+}).join('\n')}
+
+Generated by Breathing App v1.0.0
+    `.trim();
+
+    // For web, create a downloadable file
+    if (Platform.OS === 'web') {
+      const blob = new Blob([statsText], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `breathing-stats-${new Date().toISOString().split('T')[0]}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      // For mobile, show share dialog or copy to clipboard
+      Alert.alert(
+        'Export Stats',
+        'Stats copied to clipboard!',
+        [
+          {
+            text: 'Share',
+            onPress: () => {
+              // Share functionality could be implemented here with expo-sharing
+              console.log('Sharing stats:', statsText);
+            }
+          },
+          { text: 'OK' }
+        ]
+      );
+    }
+    
+    triggerHapticFeedback('success');
+  };
+
+  // Theme functions
+  const loadThemeSettings = async () => {
+    try {
+      const theme = await AsyncStorage.getItem('isDarkTheme');
+      if (theme !== null) {
+        setIsDarkTheme(JSON.parse(theme));
+      }
+    } catch (error) {
+      console.log('Error loading theme settings:', error);
+    }
+  };
+
+  const saveThemeSettings = async (isDark: boolean) => {
+    try {
+      await AsyncStorage.setItem('isDarkTheme', JSON.stringify(isDark));
+    } catch (error) {
+      console.log('Error saving theme settings:', error);
+    }
+  };
+
+  const toggleTheme = async () => {
+    const newTheme = !isDarkTheme;
+    setIsDarkTheme(newTheme);
+    await saveThemeSettings(newTheme);
+    triggerHapticFeedback('light');
+  };
+
+  // Theme colors
+  const getThemeColors = () => {
+    if (isDarkTheme) {
+      return {
+        background: ['#667eea', '#764ba2'],
+        text: 'white',
+        cardBackground: 'rgba(255, 255, 255, 0.1)',
+        buttonBackground: 'rgba(255, 255, 255, 0.2)',
+        border: 'rgba(255, 255, 255, 0.3)'
+      };
+    } else {
+      return {
+        background: ['#e3f2fd', '#f3e5f5'],
+        text: '#333333',
+        cardBackground: 'rgba(0, 0, 0, 0.05)',
+        buttonBackground: 'rgba(0, 0, 0, 0.1)',
+        border: 'rgba(0, 0, 0, 0.2)'
+      };
+    }
+  };
+
+  const themeColors = getThemeColors();
+
+  // Breathing rate functions
+  const loadBreathingRate = async () => {
+    try {
+      const rate = await AsyncStorage.getItem('breathingRate');
+      if (rate !== null) {
+        setBreathingRate(parseFloat(rate));
+      }
+    } catch (error) {
+      console.log('Error loading breathing rate:', error);
+    }
+  };
+
+  const saveBreathingRate = async (rate: number) => {
+    try {
+      await AsyncStorage.setItem('breathingRate', rate.toString());
+    } catch (error) {
+      console.log('Error saving breathing rate:', error);
+    }
+  };
+
+  const adjustBreathingRate = async (direction: 'faster' | 'slower') => {
+    let newRate = breathingRate;
+    
+    if (direction === 'faster') {
+      newRate = Math.min(2.0, breathingRate + 0.2); // Max 2x speed
+    } else {
+      newRate = Math.max(0.5, breathingRate - 0.2); // Min 0.5x speed
+    }
+    
+    setBreathingRate(newRate);
+    await saveBreathingRate(newRate);
+    triggerHapticFeedback('light');
+  };
+
+  const getAdjustedInterval = () => {
+    return Math.round(1000 / breathingRate); // Adjust the base 1000ms interval
   };
 
   // Format session timer
@@ -386,6 +693,27 @@ export default function BreathingScreen() {
       if (nextCycle >= maxCycles && nextPhase === 'inhale') {
         runOnJS(triggerHapticFeedback)('success');
         runOnJS(updateSessionStats)();
+        
+        // Generate session summary
+        runOnJS(() => {
+          if (sessionStartTime.current && selectedPattern) {
+            const finalDuration = Math.floor((new Date().getTime() - sessionStartTime.current.getTime()) / 1000);
+            const totalBreaths = selectedPattern.ratio.reduce((sum, duration) => sum + duration, 0) * maxCycles;
+            
+            setLastSessionSummary({
+              duration: finalDuration,
+              cycles: maxCycles,
+              pattern: selectedPattern.name,
+              breathsCompleted: totalBreaths,
+            });
+            
+            // Show summary after a brief delay to let achievement show first
+            setTimeout(() => {
+              setShowSessionSummary(true);
+            }, showAchievement ? 3000 : 500);
+          }
+        })();
+        
         // Clear timer when session completes
         runOnJS(() => {
           if (timerIntervalRef.current) {
@@ -465,7 +793,7 @@ export default function BreathingScreen() {
       
       if (phaseDuration > 0) {
         animateCircle(state.phase, phaseDuration);
-        intervalRef.current = setInterval(tick, 1000);
+        intervalRef.current = setInterval(tick, getAdjustedInterval());
       } else {
         nextPhase();
       }
@@ -483,6 +811,11 @@ export default function BreathingScreen() {
     sessionStartTime.current = new Date();
     setSessionDuration(0);
     triggerHapticFeedback('medium');
+    
+    // Start background sounds if enabled
+    if (backgroundSoundsEnabled && currentSound !== 'none') {
+      playBackgroundSound();
+    }
     
     // Start session timer
     timerIntervalRef.current = setInterval(() => {
@@ -509,6 +842,9 @@ export default function BreathingScreen() {
   const stopBreathing = () => {
     hasSpokenPhaseRef.current = false;
     sessionStartTime.current = null;
+    
+    // Stop background sounds
+    stopBackgroundSound();
     
     // Clear session timer
     if (timerIntervalRef.current) {
@@ -662,7 +998,7 @@ export default function BreathingScreen() {
 
   return (
     <>
-      <LinearGradient colors={['#667eea', '#764ba2']} style={styles.container}>
+      <LinearGradient colors={themeColors.background} style={styles.container}>
         <View style={[styles.content, { paddingTop: insets.top + 10, paddingBottom: Platform.select({ android: 130, default: 90 }) }]}>
           
           {/* Header */}
@@ -676,8 +1012,30 @@ export default function BreathingScreen() {
                 <Text style={styles.statsButtonText}>Stats</Text>
               </TouchableOpacity>
             </View>
-            <Text style={styles.title}>Breathe</Text>
+            <Text style={[styles.title, { color: themeColors.text }]}>Breathe</Text>
             <View style={styles.headerRight}>
+              <TouchableOpacity 
+                style={styles.themeToggleButton}
+                onPress={toggleTheme}
+              >
+                {isDarkTheme ? (
+                  <Sun size={16} color={themeColors.text} />
+                ) : (
+                  <Moon size={16} color={themeColors.text} />
+                )}
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.soundToggleButton}
+                onPress={toggleBackgroundSounds}
+              >
+                {backgroundSoundsEnabled ? (
+                  <Volume2 size={16} color={themeColors.text} />
+                ) : (
+                  <VolumeX size={16} color={themeColors.text} />
+                )}
+              </TouchableOpacity>
+              
               <TouchableOpacity 
                 style={styles.countToggleButton}
                 onPress={async () => {
@@ -688,11 +1046,11 @@ export default function BreathingScreen() {
                 }}
               >
                 {countDirection === 'up' ? (
-                  <ArrowUp size={16} color="white" />
+                  <ArrowUp size={16} color={themeColors.text} />
                 ) : (
-                  <ArrowDown size={16} color="white" />
+                  <ArrowDown size={16} color={themeColors.text} />
                 )}
-                <Text style={styles.countToggleText}>
+                <Text style={[styles.countToggleText, { color: themeColors.text }]}>
                   {countDirection === 'up' ? 'Up' : 'Down'}
                 </Text>
               </TouchableOpacity>
@@ -734,9 +1092,9 @@ export default function BreathingScreen() {
           <View style={styles.circleContainer}>
             <Animated.View style={[styles.circle, circleStyle]}>
               <View style={styles.circleInner}>
-                <Text style={styles.phaseText}>{getPhaseText(state.phase)}</Text>
+                <Text style={[styles.phaseText, { color: themeColors.text }]}>{getPhaseText(state.phase)}</Text>
                 {state.isActive && selectedPattern.ratio[['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase)] > 0 && (
-                  <Text style={styles.countText}>
+                  <Text style={[styles.countText, { color: themeColors.text }]}>
                     {countDirection === 'up' 
                       ? state.count 
                       : selectedPattern.ratio[['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase)] - state.count + 1
@@ -744,7 +1102,7 @@ export default function BreathingScreen() {
                   </Text>
                 )}
                 {state.isActive && showSessionTimer && (
-                  <Text style={styles.sessionTimer}>
+                  <Text style={[styles.sessionTimer, { color: themeColors.text }]}>
                     {formatSessionTime(sessionDuration)}
                   </Text>
                 )}
@@ -754,7 +1112,36 @@ export default function BreathingScreen() {
 
           {/* Progress & Controls Combined */}
           <View style={styles.controlsSection}>
-            <Text style={styles.progressText}>Cycle {state.cycle + 1} of {selectedPattern?.repetitions || 5}</Text>
+            <Text style={[styles.progressText, { color: themeColors.text }]}>Cycle {state.cycle + 1} of {selectedPattern?.repetitions || 5}</Text>
+            
+            {/* Breathing Rate Controls */}
+            <View style={styles.rateControls}>
+              <TouchableOpacity 
+                style={[styles.rateButton, breathingRate <= 0.5 && styles.rateButtonDisabled]}
+                onPress={() => adjustBreathingRate('slower')}
+                disabled={breathingRate <= 0.5}
+              >
+                <Turtle size={16} color={breathingRate <= 0.5 ? 'rgba(255,255,255,0.3)' : themeColors.text} />
+                <Text style={[styles.rateButtonText, { 
+                  color: breathingRate <= 0.5 ? 'rgba(255,255,255,0.3)' : themeColors.text 
+                }]}>Slower</Text>
+              </TouchableOpacity>
+              
+              <Text style={[styles.rateText, { color: themeColors.text }]}>
+                {breathingRate.toFixed(1)}x
+              </Text>
+              
+              <TouchableOpacity 
+                style={[styles.rateButton, breathingRate >= 2.0 && styles.rateButtonDisabled]}
+                onPress={() => adjustBreathingRate('faster')}
+                disabled={breathingRate >= 2.0}
+              >
+                <Zap size={16} color={breathingRate >= 2.0 ? 'rgba(255,255,255,0.3)' : themeColors.text} />
+                <Text style={[styles.rateButtonText, { 
+                  color: breathingRate >= 2.0 ? 'rgba(255,255,255,0.3)' : themeColors.text 
+                }]}>Faster</Text>
+              </TouchableOpacity>
+            </View>
             
             <View style={styles.controls}>
               {!state.isActive ? (
@@ -776,7 +1163,7 @@ export default function BreathingScreen() {
               )}
             </View>
             
-            <Text style={styles.patternInfo}>
+            <Text style={[styles.patternInfo, { color: themeColors.text }]}>
               {selectedPattern.name} • {selectedPattern.ratio.join(':')}
             </Text>
           </View>
@@ -808,9 +1195,14 @@ export default function BreathingScreen() {
               >
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Your Progress</Text>
-                  <TouchableOpacity onPress={() => setShowStats(false)} style={styles.closeButton}>
-                    <X size={width < 400 ? 16 : 24} color="white" />
-                  </TouchableOpacity>
+                  <View style={styles.modalHeaderButtons}>
+                    <TouchableOpacity onPress={exportStats} style={styles.exportButton}>
+                      <Download size={width < 400 ? 14 : 18} color="white" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setShowStats(false)} style={styles.closeButton}>
+                      <X size={width < 400 ? 16 : 24} color="white" />
+                    </TouchableOpacity>
+                  </View>
                 </View>
                 
                 <View style={styles.statsContent}>
@@ -876,6 +1268,61 @@ export default function BreathingScreen() {
               >
                 <Text style={styles.achievementButtonText}>Continue</Text>
               </TouchableOpacity>
+            </LinearGradient>
+          </View>
+        </View>
+      )}
+
+      {/* Session Summary Modal */}
+      {showSessionSummary && lastSessionSummary && (
+        <View style={styles.sessionSummaryOverlay}>
+          <View style={styles.sessionSummaryModal}>
+            <LinearGradient
+              colors={['#10b981', '#059669']}
+              style={styles.sessionSummaryGradient}
+            >
+              <Award size={32} color="white" />
+              <Text style={styles.sessionSummaryTitle}>Session Complete!</Text>
+              
+              <View style={styles.summaryStats}>
+                <View style={styles.summaryStatItem}>
+                  <Text style={styles.summaryStatNumber}>{formatSessionTime(lastSessionSummary.duration)}</Text>
+                  <Text style={styles.summaryStatLabel}>Duration</Text>
+                </View>
+                
+                <View style={styles.summaryStatItem}>
+                  <Text style={styles.summaryStatNumber}>{lastSessionSummary.cycles}</Text>
+                  <Text style={styles.summaryStatLabel}>Cycles</Text>
+                </View>
+                
+                <View style={styles.summaryStatItem}>
+                  <Text style={styles.summaryStatNumber}>{lastSessionSummary.breathsCompleted}</Text>
+                  <Text style={styles.summaryStatLabel}>Breaths</Text>
+                </View>
+              </View>
+              
+              <Text style={styles.summaryPattern}>
+                Pattern: {lastSessionSummary.pattern}
+              </Text>
+              
+              <View style={styles.summaryButtons}>
+                <TouchableOpacity 
+                  style={styles.summaryButton}
+                  onPress={() => setShowSessionSummary(false)}
+                >
+                  <Text style={styles.summaryButtonText}>Continue</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.summaryButton, styles.summaryButtonSecondary]}
+                  onPress={() => {
+                    setShowSessionSummary(false);
+                    setShowStats(true);
+                  }}
+                >
+                  <Text style={styles.summaryButtonText}>View Stats</Text>
+                </TouchableOpacity>
+              </View>
             </LinearGradient>
           </View>
         </View>
@@ -1075,6 +1522,22 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 12,
     fontWeight: '600',
+  },
+  themeToggleButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    padding: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    marginRight: 8,
+  },
+  soundToggleButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    padding: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    marginRight: 8,
   },
   countToggleButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1416,6 +1879,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: width < 400 ? 6 : 20,
   },
+  modalHeaderButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  exportButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    padding: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
   modalTitle: {
     fontSize: width < 400 ? 16 : 24,
     fontWeight: '700',
@@ -1521,5 +1996,115 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  
+  // Session summary modal styles
+  sessionSummaryOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10000,
+  },
+  sessionSummaryModal: {
+    width: width - 60,
+    maxWidth: 320,
+  },
+  sessionSummaryGradient: {
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+  },
+  sessionSummaryTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: 'white',
+    marginTop: 12,
+    marginBottom: 24,
+  },
+  summaryStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginBottom: 20,
+  },
+  summaryStatItem: {
+    alignItems: 'center',
+  },
+  summaryStatNumber: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: 'white',
+    marginBottom: 4,
+  },
+  summaryStatLabel: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontWeight: '500',
+  },
+  summaryPattern: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.9)',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  summaryButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  summaryButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    flex: 1,
+  },
+  summaryButtonSecondary: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  summaryButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  
+  // Breathing rate control styles
+  rateControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 10,
+    gap: 15,
+  },
+  rateButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  rateButtonDisabled: {
+    opacity: 0.3,
+  },
+  rateButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  rateText: {
+    fontSize: 16,
+    fontWeight: '700',
+    minWidth: 40,
+    textAlign: 'center',
   },
 });
