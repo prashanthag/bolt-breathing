@@ -20,7 +20,25 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3, Trophy, Eye, Users, Brain, Target, Mic } from 'lucide-react-native';
+import { 
+  Play, 
+  Pause, 
+  Square, 
+  RotateCcw, 
+  Plus, 
+  X, 
+  Edit3, 
+  BarChart3, 
+  Trophy, 
+  Eye, 
+  Users, 
+  Brain, 
+  Target, 
+  Mic,
+  BookOpen,
+  TrendingUp,
+  Calendar
+} from 'lucide-react-native';
 import { useBreathingPatterns, BreathingPattern } from '@/hooks/useBreathingPatterns';
 import { useGamification } from '@/hooks/useGamification';
 import { useAREnvironments } from '@/hooks/useAREnvironments';
@@ -35,11 +53,13 @@ import SocialBreathingRooms from '@/components/SocialBreathingRooms';
 import AIMoodDetector from '@/components/AIMoodDetector';
 import ChallengesPanel from '@/components/ChallengesPanel';
 import SocialSharingModal from '@/components/SocialSharingModal';
-// Temporarily disable on mobile for debugging
 import VoiceAssistantModal from '@/components/VoiceAssistantModal';
+import WeeklyCalendar from '@/components/WeeklyCalendar';
+import BreathingInsights from '@/components/BreathingInsights';
+import GuidedSessionModal from '@/components/GuidedSessionModal';
+import SessionLibrary from '@/components/SessionLibrary';
 import { useMoodDetection } from '@/hooks/useMoodDetection';
 import { useBreathingChallenges } from '@/hooks/useBreathingChallenges';
-import * as Haptics from 'expo-haptics';
 
 const { width, height } = Dimensions.get('window');
 
@@ -79,6 +99,7 @@ export default function BreathingScreen() {
     challenges,
     streakData
   } = useBreathingChallenges();
+  
   const [selectedPattern, setSelectedPattern] = useState<BreathingPattern | null>(null);
   const [customLabels, setCustomLabels] = useState({
     inhale: 'Inhale',
@@ -108,7 +129,7 @@ export default function BreathingScreen() {
   const [editingVoice, setEditingVoice] = useState<string | null>(null);
   const [countDirection, setCountDirection] = useState<'up' | 'down'>('down');
   
-  // Gamification states
+  // Enhanced UI states
   const [showStatsCard, setShowStatsCard] = useState(false);
   const [showEnvironmentSelector, setShowEnvironmentSelector] = useState(false);
   const [showSocialRooms, setShowSocialRooms] = useState(false);
@@ -116,6 +137,12 @@ export default function BreathingScreen() {
   const [showChallenges, setShowChallenges] = useState(false);
   const [showSocialSharing, setShowSocialSharing] = useState(false);
   const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
+  const [showWeeklyCalendar, setShowWeeklyCalendar] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
+  const [showGuidedSession, setShowGuidedSession] = useState(false);
+  const [showSessionLibrary, setShowSessionLibrary] = useState(false);
+  const [selectedGuidedSession, setSelectedGuidedSession] = useState(null);
+  
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [socialRoom, setSocialRoom] = useState<any>(null);
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
@@ -124,6 +151,43 @@ export default function BreathingScreen() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const hasSpokenPhaseRef = useRef(false);
   const countDirectionRef = useRef<'up' | 'down'>('down');
+
+  // Mock data for new features
+  const weeklyCompletions = [true, true, false, true, false, false, false]; // S,M,T,W,T,F,S
+  const insightsData = [
+    {
+      title: 'Stress Level',
+      value: '23%',
+      change: -15,
+      trend: 'down' as const,
+      icon: <Brain size={20} color="white" />,
+      color: '#10b981'
+    },
+    {
+      title: 'Focus Score',
+      value: '87%',
+      change: 12,
+      trend: 'up' as const,
+      icon: <Target size={20} color="white" />,
+      color: '#3b82f6'
+    },
+    {
+      title: 'Consistency',
+      value: '92%',
+      change: 5,
+      trend: 'up' as const,
+      icon: <Calendar size={20} color="white" />,
+      color: '#8b5cf6'
+    },
+    {
+      title: 'Energy Level',
+      value: '76%',
+      change: 8,
+      trend: 'up' as const,
+      icon: <TrendingUp size={20} color="white" />,
+      color: '#f59e0b'
+    }
+  ];
 
   // Set default pattern when patterns load  
   useEffect(() => {
@@ -209,26 +273,10 @@ export default function BreathingScreen() {
   };
 
   const triggerHapticFeedback = (type: 'light' | 'medium' | 'heavy' | 'success' = 'light') => {
-    if (!hapticsEnabled) return;
+    if (!hapticsEnabled || Platform.OS === 'web') return;
     
-    try {
-      switch (type) {
-        case 'light':
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          break;
-        case 'medium':
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          break;
-        case 'heavy':
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-          break;
-        case 'success':
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          break;
-      }
-    } catch (error) {
-      console.log('Haptic feedback error:', error);
-    }
+    // Platform-specific haptic feedback would go here
+    console.log(`Haptic feedback: ${type}`);
   };
 
   // Voice synthesis function
@@ -733,6 +781,18 @@ export default function BreathingScreen() {
             </View>
           </View>
 
+          {/* Weekly Progress Card */}
+          <View style={styles.weeklySection}>
+            <WeeklyCalendar
+              completedDays={weeklyCompletions}
+              currentStreak={streakData.currentStreak}
+              onDayPress={(dayIndex) => {
+                console.log('Day pressed:', dayIndex);
+                setShowInsights(true);
+              }}
+            />
+          </View>
+
           {/* Pattern Selection - Recent 4 patterns only */}
           <View style={styles.patternSection}>
             <View style={styles.patternRow}>
@@ -817,31 +877,41 @@ export default function BreathingScreen() {
             </Text>
           </View>
 
-          {/* Bottom Actions - Two Columns */}
+          {/* Bottom Actions - Enhanced with new features */}
           <View style={styles.bottomSection}>
-            <TouchableOpacity 
-              style={styles.createButton}
-              onPress={() => {
-                console.log('Create button pressed, modal state:', showCreateModal);
-                setShowCreateModal(true);
-              }}
-            >
-              <Plus size={20} color="white" />
-              <Text style={styles.createButtonText}>Create Pattern</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.environmentButton}
-              onPress={() => {
-                setShowEnvironmentSelector(true);
-                updateChallengeProgress('environment_change');
-              }}
-            >
-              <Eye size={20} color="white" />
-              <Text style={styles.environmentButtonText}>
-                {selectedEnvironment.icon} {selectedEnvironment.name}
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.bottomRow}>
+              <TouchableOpacity 
+                style={styles.createButton}
+                onPress={() => {
+                  console.log('Create button pressed, modal state:', showCreateModal);
+                  setShowCreateModal(true);
+                }}
+              >
+                <Plus size={20} color="white" />
+                <Text style={styles.createButtonText}>Create</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.guidedButton}
+                onPress={() => setShowSessionLibrary(true)}
+              >
+                <BookOpen size={20} color="white" />
+                <Text style={styles.guidedButtonText}>Guided</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.environmentButton}
+                onPress={() => {
+                  setShowEnvironmentSelector(true);
+                  updateChallengeProgress('environment_change');
+                }}
+              >
+                <Eye size={20} color="white" />
+                <Text style={styles.environmentButtonText}>
+                  {selectedEnvironment.icon}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </LinearGradient>
@@ -1106,6 +1176,33 @@ export default function BreathingScreen() {
         onClose={() => setShowVoiceAssistant(false)}
         onCommand={handleVoiceCommand}
       />
+
+      {/* Breathing Insights Modal */}
+      <BreathingInsights
+        visible={showInsights}
+        onClose={() => setShowInsights(false)}
+        insights={insightsData}
+      />
+
+      {/* Session Library Modal */}
+      <SessionLibrary
+        visible={showSessionLibrary}
+        onClose={() => setShowSessionLibrary(false)}
+        onSelectSession={(session) => {
+          setSelectedGuidedSession(session);
+          setShowGuidedSession(true);
+        }}
+      />
+
+      {/* Guided Session Modal */}
+      <GuidedSessionModal
+        visible={showGuidedSession}
+        onClose={() => {
+          setShowGuidedSession(false);
+          setSelectedGuidedSession(null);
+        }}
+        session={selectedGuidedSession}
+      />
     </>
   );
 }
@@ -1248,6 +1345,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   
+  weeklySection: { 
+    marginBottom: 15 
+  },
+  
   patternSection: { marginBottom: width < 450 ? 10 : 20 }, // Reduce space on Galaxy Fold
   patternRow: { 
     flexDirection: 'row', 
@@ -1296,35 +1397,49 @@ const styles = StyleSheet.create({
   
   createButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 25,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
     flex: 1,
   },
-  createButtonText: { color: 'white', fontSize: 14, fontWeight: '600' },
+  createButtonText: { color: 'white', fontSize: 12, fontWeight: '600' },
+  
+  guidedButton: {
+    backgroundColor: 'rgba(139, 92, 246, 0.3)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    flex: 1,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.5)',
+  },
+  guidedButtonText: { color: 'white', fontSize: 12, fontWeight: '600' },
   
   environmentButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 25,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    flex: 1,
+    gap: 6,
+    flex: 0.8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   environmentButtonText: { 
     color: 'white', 
-    fontSize: 12, 
+    fontSize: 16, 
     fontWeight: '600',
-    numberOfLines: 1,
   },
   
   circleContainer: {
@@ -1384,8 +1499,10 @@ const styles = StyleSheet.create({
   bottomSection: {
     paddingTop: 10,
     paddingBottom: 10,
+  },
+  bottomRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
   },
   
   // Modal styles
