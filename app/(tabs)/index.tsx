@@ -79,9 +79,14 @@ export default function BreathingScreen() {
     lastSessionDate: null as Date | null,
   });
   const [showStats, setShowStats] = useState(false);
+  
+  // Session timer state
+  const [sessionDuration, setSessionDuration] = useState(0);
+  const [showSessionTimer, setShowSessionTimer] = useState(true);
 
   const circleScale = useSharedValue(0.3);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const hasSpokenPhaseRef = useRef(false);
   const sessionStartTime = useRef<Date | null>(null);
 
@@ -172,6 +177,13 @@ export default function BreathingScreen() {
     } catch (error) {
       console.log('Error saving session stats:', error);
     }
+  };
+
+  // Format session timer
+  const formatSessionTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const updateSessionStats = () => {
@@ -288,6 +300,13 @@ export default function BreathingScreen() {
       if (nextCycle >= maxCycles && nextPhase === 'inhale') {
         runOnJS(triggerHapticFeedback)('success');
         runOnJS(updateSessionStats)();
+        // Clear timer when session completes
+        runOnJS(() => {
+          if (timerIntervalRef.current) {
+            clearInterval(timerIntervalRef.current);
+            timerIntervalRef.current = null;
+          }
+        })();
         return {
           ...prevState,
           isActive: false,
@@ -376,7 +395,17 @@ export default function BreathingScreen() {
   const startBreathing = () => {
     hasSpokenPhaseRef.current = false;
     sessionStartTime.current = new Date();
+    setSessionDuration(0);
     triggerHapticFeedback('medium');
+    
+    // Start session timer
+    timerIntervalRef.current = setInterval(() => {
+      if (sessionStartTime.current) {
+        const elapsed = Math.floor((new Date().getTime() - sessionStartTime.current.getTime()) / 1000);
+        setSessionDuration(elapsed);
+      }
+    }, 1000);
+    
     setState(prev => ({
       ...prev,
       isActive: true,
@@ -393,6 +422,14 @@ export default function BreathingScreen() {
 
   const stopBreathing = () => {
     hasSpokenPhaseRef.current = false;
+    sessionStartTime.current = null;
+    
+    // Clear session timer
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+    
     setState({
       phase: 'inhale',
       count: 0,
@@ -599,6 +636,11 @@ export default function BreathingScreen() {
                       ? state.count 
                       : selectedPattern.ratio[['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase)] - state.count + 1
                     }
+                  </Text>
+                )}
+                {state.isActive && showSessionTimer && (
+                  <Text style={styles.sessionTimer}>
+                    {formatSessionTime(sessionDuration)}
                   </Text>
                 )}
               </View>
@@ -979,6 +1021,12 @@ const styles = StyleSheet.create({
     fontSize: width < 450 ? 36 : 42, 
     fontWeight: '300', 
     color: 'white' 
+  },
+  sessionTimer: {
+    fontSize: width < 450 ? 14 : 16,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginTop: 8,
   },
   
   controlsSection: { alignItems: 'center', paddingBottom: 20 },

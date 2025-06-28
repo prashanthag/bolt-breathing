@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Wind, Settings, Smartphone } from 'lucide-react-native';
+import { Wind, Settings } from 'lucide-react-native';
 import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -39,15 +39,6 @@ export default function TabLayout() {
           title: 'Breathe',
           tabBarIcon: ({ size, color }) => (
             <Wind size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="device-preview"
-        options={{
-          title: 'Devices',
-          tabBarIcon: ({ size, color }) => (
-            <Smartphone size={size} color={color} />
           ),
         }}
       />
