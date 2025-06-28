@@ -20,7 +20,7 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3, Trophy, Eye, Users, Brain, Target } from 'lucide-react-native';
+import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3, Trophy, Eye, Users, Brain, Target, Mic } from 'lucide-react-native';
 import { useBreathingPatterns, BreathingPattern } from '@/hooks/useBreathingPatterns';
 import { useGamification } from '@/hooks/useGamification';
 import { useAREnvironments } from '@/hooks/useAREnvironments';
@@ -35,6 +35,8 @@ import SocialBreathingRooms from '@/components/SocialBreathingRooms';
 import AIMoodDetector from '@/components/AIMoodDetector';
 import ChallengesPanel from '@/components/ChallengesPanel';
 import SocialSharingModal from '@/components/SocialSharingModal';
+// Temporarily disable on mobile for debugging
+import VoiceAssistantModal from '@/components/VoiceAssistantModal';
 import { useMoodDetection } from '@/hooks/useMoodDetection';
 import { useBreathingChallenges } from '@/hooks/useBreathingChallenges';
 import * as Haptics from 'expo-haptics';
@@ -113,6 +115,7 @@ export default function BreathingScreen() {
   const [showMoodDetector, setShowMoodDetector] = useState(false);
   const [showChallenges, setShowChallenges] = useState(false);
   const [showSocialSharing, setShowSocialSharing] = useState(false);
+  const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [socialRoom, setSocialRoom] = useState<any>(null);
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
@@ -120,6 +123,7 @@ export default function BreathingScreen() {
   const circleScale = useSharedValue(0.3);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const hasSpokenPhaseRef = useRef(false);
+  const countDirectionRef = useRef<'up' | 'down'>('down');
 
   // Set default pattern when patterns load  
   useEffect(() => {
@@ -164,6 +168,11 @@ export default function BreathingScreen() {
     }, [])
   );
 
+  // Keep ref in sync with state
+  useEffect(() => {
+    countDirectionRef.current = countDirection;
+  }, [countDirection]);
+
   const loadCustomLabels = async () => {
     try {
       const savedLabels = await AsyncStorage.getItem('customLabels');
@@ -179,7 +188,9 @@ export default function BreathingScreen() {
     try {
       const savedDirection = await AsyncStorage.getItem('countDirection');
       if (savedDirection) {
-        setCountDirection(savedDirection as 'up' | 'down');
+        const direction = savedDirection as 'up' | 'down';
+        setCountDirection(direction);
+        countDirectionRef.current = direction;
       }
     } catch (error) {
       console.log('Error loading count direction:', error);
@@ -341,7 +352,7 @@ export default function BreathingScreen() {
       
       const newCount = prevState.count + 1;
       
-      // Speak the count number based on direction preference
+      // Audio counting logic - keep it simple and consistent
       if (countDirection === 'up') {
         runOnJS(speak)(newCount.toString());
       } else {
@@ -349,9 +360,9 @@ export default function BreathingScreen() {
         runOnJS(speak)(remainingCount.toString());
       }
       
+      // Check if phase is complete
       if (newCount >= phaseDuration) {
         runOnJS(nextPhase)();
-        return prevState;
       }
       
       return {
@@ -531,6 +542,81 @@ export default function BreathingScreen() {
     };
   });
 
+  // Voice command handler
+  const handleVoiceCommand = (action: string, parameters?: any) => {
+    switch (action) {
+      case 'START_SESSION':
+        if (!state.isActive) {
+          startBreathing();
+        }
+        break;
+      
+      case 'STOP_SESSION':
+        stopBreathing();
+        break;
+      
+      case 'RESUME_SESSION':
+        if (state.isPaused) {
+          togglePause();
+        }
+        break;
+      
+      case 'SET_PATTERN':
+        if (parameters?.pattern) {
+          const patternMap: { [key: string]: string } = {
+            'box': 'Box Breathing',
+            'relaxing': '4-7-8 Relaxing',
+            'coherent': 'Coherent Breathing'
+          };
+          const patternName = patternMap[parameters.pattern];
+          const pattern = patterns.find(p => p.name.includes(patternName));
+          if (pattern) {
+            setSelectedPattern(pattern);
+            stopBreathing();
+            updateChallengeProgress('pattern_used');
+          }
+        }
+        break;
+      
+      case 'SET_ENVIRONMENT':
+        if (parameters?.environment) {
+          selectEnvironment(parameters.environment);
+          updateChallengeProgress('environment_change');
+        }
+        break;
+      
+      case 'SHOW_STATS':
+        setShowVoiceAssistant(false);
+        setShowStatsCard(true);
+        break;
+      
+      case 'SHOW_CHALLENGES':
+        setShowVoiceAssistant(false);
+        setShowChallenges(true);
+        break;
+      
+      case 'SHOW_SOCIAL_ROOMS':
+        setShowVoiceAssistant(false);
+        setShowSocialRooms(true);
+        break;
+      
+      case 'SHOW_SHARING':
+        setShowVoiceAssistant(false);
+        setShowSocialSharing(true);
+        break;
+      
+      case 'MOOD_CHECK':
+        setShowVoiceAssistant(false);
+        setShowMoodDetector(true);
+        break;
+      
+      default:
+        console.log('Unknown voice command:', action);
+    }
+    
+    triggerHapticFeedback('light');
+  };
+
   if (loading) {
     return (
       <LinearGradient colors={['#667eea', '#764ba2']} style={styles.container}>
@@ -612,6 +698,14 @@ export default function BreathingScreen() {
             
             <View style={styles.headerButtons}>
               <TouchableOpacity 
+                style={styles.voiceButton}
+                onPress={() => setShowVoiceAssistant(true)}
+              >
+                <Mic size={16} color="white" />
+                <Text style={styles.voiceButtonText}>Voice</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
                 style={styles.aiButton}
                 onPress={() => setShowMoodDetector(true)}
               >
@@ -682,7 +776,7 @@ export default function BreathingScreen() {
                 {state.isActive && selectedPattern.ratio[['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase)] > 0 && (
                   <Text style={styles.countText}>
                     {countDirection === 'up' 
-                      ? state.count 
+                      ? state.count + 1
                       : selectedPattern.ratio[['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase)] - state.count + 1
                     }
                   </Text>
@@ -1005,6 +1099,13 @@ export default function BreathingScreen() {
         streakData={streakData}
         achievements={stats.achievements}
       />
+
+      {/* Voice Assistant Modal */}
+      <VoiceAssistantModal
+        visible={showVoiceAssistant}
+        onClose={() => setShowVoiceAssistant(false)}
+        onCommand={handleVoiceCommand}
+      />
     </>
   );
 }
@@ -1082,6 +1183,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 6,
   },
+  voiceButton: {
+    backgroundColor: 'rgba(34, 197, 94, 0.3)',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.5)',
+  },
+  voiceButtonText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: '600',
+  },
   aiButton: {
     backgroundColor: 'rgba(139, 92, 246, 0.3)',
     paddingHorizontal: 8,
@@ -1131,15 +1248,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   
-  patternSection: { marginBottom: 20 },
-  patternRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
+  patternSection: { marginBottom: width < 450 ? 10 : 20 }, // Reduce space on Galaxy Fold
+  patternRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    marginBottom: width < 450 ? 8 : 15 
+  },
   patternChip: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: width < 450 ? 8 : 12,
+    paddingVertical: width < 450 ? 6 : 8,
     borderRadius: 20,
     flex: 1,
-    marginHorizontal: 2,
+    marginHorizontal: width < 450 ? 1 : 2,
     alignItems: 'center',
   },
   activeChip: { backgroundColor: 'rgba(255, 255, 255, 0.4)' },
@@ -1156,7 +1277,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  patternChipText: { color: 'white', fontSize: 12, fontWeight: '600' },
+  patternChipText: { 
+    color: 'white', 
+    fontSize: width < 450 ? 9 : 12, 
+    fontWeight: '600' 
+  },
   patternIndicator: { 
     fontSize: 8, 
     marginLeft: 2,
@@ -1206,12 +1331,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     flex: 1,
-    marginVertical: 20,
+    marginVertical: width < 450 ? 3 : 20, // More aggressive margin reduction
   },
   circle: {
-    width: Math.min(width * 0.7, 280),
-    height: Math.min(width * 0.7, 280),
-    borderRadius: Math.min(width * 0.35, 140),
+    width: Math.min(width * (width < 450 ? 0.35 : 0.7), width < 450 ? 160 : 280), // Even smaller for Galaxy Fold
+    height: Math.min(width * (width < 450 ? 0.35 : 0.7), width < 450 ? 160 : 280),
+    borderRadius: Math.min(width * (width < 450 ? 0.175 : 0.35), width < 450 ? 80 : 140),
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1219,8 +1344,17 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   circleInner: { alignItems: 'center' },
-  phaseText: { fontSize: 24, fontWeight: '600', color: 'white', marginBottom: 8 },
-  countText: { fontSize: 42, fontWeight: '300', color: 'white' },
+  phaseText: { 
+    fontSize: width < 450 ? 16 : 24, 
+    fontWeight: '600', 
+    color: 'white', 
+    marginBottom: width < 450 ? 4 : 8 
+  },
+  countText: { 
+    fontSize: width < 450 ? 28 : 42, 
+    fontWeight: '300', 
+    color: 'white' 
+  },
   
   controlsSection: { alignItems: 'center', paddingBottom: 20 },
   progressText: { color: 'white', fontSize: 16, fontWeight: '500', marginBottom: 15 },
