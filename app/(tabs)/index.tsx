@@ -20,7 +20,7 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3 } from 'lucide-react-native';
+import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3, ArrowUp, ArrowDown, Trophy, Award } from 'lucide-react-native';
 import { useBreathingPatterns, BreathingPattern } from '@/hooks/useBreathingPatterns';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Speech from 'expo-speech';
@@ -83,6 +83,10 @@ export default function BreathingScreen() {
   // Session timer state
   const [sessionDuration, setSessionDuration] = useState(0);
   const [showSessionTimer, setShowSessionTimer] = useState(true);
+  
+  // Achievements state
+  const [achievements, setAchievements] = useState<string[]>([]);
+  const [showAchievement, setShowAchievement] = useState<string | null>(null);
 
   const circleScale = useSharedValue(0.3);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -124,6 +128,7 @@ export default function BreathingScreen() {
     loadCustomLabels();
     loadCountDirection();
     loadSessionStats();
+    loadAchievements();
   }, []);
 
   // Reload settings when screen comes into focus
@@ -186,6 +191,86 @@ export default function BreathingScreen() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Achievement definitions
+  const achievementDefs = {
+    'first_session': { title: 'First Breath', description: 'Complete your first session', icon: '🌬️' },
+    'sessions_10': { title: 'Dedicated', description: 'Complete 10 sessions', icon: '🎯' },
+    'sessions_50': { title: 'Committed', description: 'Complete 50 sessions', icon: '💪' },
+    'sessions_100': { title: 'Master', description: 'Complete 100 sessions', icon: '🏆' },
+    'streak_3': { title: '3-Day Streak', description: 'Practice 3 days in a row', icon: '🔥' },
+    'streak_7': { title: 'Week Warrior', description: 'Practice 7 days in a row', icon: '⭐' },
+    'streak_30': { title: 'Month Master', description: 'Practice 30 days in a row', icon: '👑' },
+    'daily_5': { title: 'Daily Five', description: 'Complete 5 sessions in one day', icon: '💫' },
+  };
+
+  // Load achievements
+  const loadAchievements = async () => {
+    try {
+      const saved = await AsyncStorage.getItem('achievements');
+      if (saved) {
+        setAchievements(JSON.parse(saved));
+      }
+    } catch (error) {
+      console.log('Error loading achievements:', error);
+    }
+  };
+
+  // Save achievements
+  const saveAchievements = async (newAchievements: string[]) => {
+    try {
+      await AsyncStorage.setItem('achievements', JSON.stringify(newAchievements));
+    } catch (error) {
+      console.log('Error saving achievements:', error);
+    }
+  };
+
+  // Check for new achievements
+  const checkAchievements = (stats: typeof sessionStats) => {
+    const newAchievements: string[] = [];
+    
+    // First session
+    if (stats.totalSessions >= 1 && !achievements.includes('first_session')) {
+      newAchievements.push('first_session');
+    }
+    
+    // Session milestones
+    if (stats.totalSessions >= 10 && !achievements.includes('sessions_10')) {
+      newAchievements.push('sessions_10');
+    }
+    if (stats.totalSessions >= 50 && !achievements.includes('sessions_50')) {
+      newAchievements.push('sessions_50');
+    }
+    if (stats.totalSessions >= 100 && !achievements.includes('sessions_100')) {
+      newAchievements.push('sessions_100');
+    }
+    
+    // Streak achievements
+    if (stats.currentStreak >= 3 && !achievements.includes('streak_3')) {
+      newAchievements.push('streak_3');
+    }
+    if (stats.currentStreak >= 7 && !achievements.includes('streak_7')) {
+      newAchievements.push('streak_7');
+    }
+    if (stats.currentStreak >= 30 && !achievements.includes('streak_30')) {
+      newAchievements.push('streak_30');
+    }
+    
+    // Daily sessions
+    if (stats.todaySessions >= 5 && !achievements.includes('daily_5')) {
+      newAchievements.push('daily_5');
+    }
+    
+    if (newAchievements.length > 0) {
+      const updatedAchievements = [...achievements, ...newAchievements];
+      setAchievements(updatedAchievements);
+      saveAchievements(updatedAchievements);
+      
+      // Show first new achievement
+      setShowAchievement(newAchievements[0]);
+      triggerHapticFeedback('success');
+    }
+  };
+
   const updateSessionStats = () => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -226,6 +311,7 @@ export default function BreathingScreen() {
 
     setSessionStats(newStats);
     saveSessionStats(newStats);
+    checkAchievements(newStats);
   };
 
   // Voice synthesis function
@@ -591,7 +677,26 @@ export default function BreathingScreen() {
               </TouchableOpacity>
             </View>
             <Text style={styles.title}>Breathe</Text>
-            <View style={styles.headerRight} />
+            <View style={styles.headerRight}>
+              <TouchableOpacity 
+                style={styles.countToggleButton}
+                onPress={async () => {
+                  const newDirection = countDirection === 'up' ? 'down' : 'up';
+                  setCountDirection(newDirection);
+                  await AsyncStorage.setItem('countDirection', newDirection);
+                  triggerHapticFeedback('light');
+                }}
+              >
+                {countDirection === 'up' ? (
+                  <ArrowUp size={16} color="white" />
+                ) : (
+                  <ArrowDown size={16} color="white" />
+                )}
+                <Text style={styles.countToggleText}>
+                  {countDirection === 'up' ? 'Up' : 'Down'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Pattern Selection - Recent 4 patterns only */}
@@ -725,6 +830,12 @@ export default function BreathingScreen() {
                     <Text style={styles.statSubLabel}>days</Text>
                   </View>
                   
+                  <View style={styles.statCard}>
+                    <Text style={styles.statNumber}>{achievements.length}</Text>
+                    <Text style={styles.statLabel}>Achievements</Text>
+                    <Text style={styles.statSubLabel}>unlocked</Text>
+                  </View>
+                  
                   {sessionStats.lastSessionDate && (
                     <View style={styles.statCard}>
                       <Text style={styles.statText}>Last Session</Text>
@@ -736,6 +847,36 @@ export default function BreathingScreen() {
                 </View>
               </LinearGradient>
             </View>
+          </View>
+        </View>
+      )}
+
+      {/* Achievement Notification */}
+      {showAchievement && (
+        <View style={styles.achievementOverlay}>
+          <View style={styles.achievementModal}>
+            <LinearGradient
+              colors={['#f59e0b', '#d97706']}
+              style={styles.achievementGradient}
+            >
+              <Trophy size={32} color="white" />
+              <Text style={styles.achievementTitle}>Achievement Unlocked!</Text>
+              <Text style={styles.achievementIcon}>
+                {achievementDefs[showAchievement as keyof typeof achievementDefs]?.icon}
+              </Text>
+              <Text style={styles.achievementName}>
+                {achievementDefs[showAchievement as keyof typeof achievementDefs]?.title}
+              </Text>
+              <Text style={styles.achievementDescription}>
+                {achievementDefs[showAchievement as keyof typeof achievementDefs]?.description}
+              </Text>
+              <TouchableOpacity 
+                style={styles.achievementButton}
+                onPress={() => setShowAchievement(null)}
+              >
+                <Text style={styles.achievementButtonText}>Continue</Text>
+              </TouchableOpacity>
+            </LinearGradient>
           </View>
         </View>
       )}
@@ -933,6 +1074,22 @@ const styles = StyleSheet.create({
   statsButtonText: {
     color: 'white',
     fontSize: 12,
+    fontWeight: '600',
+  },
+  countToggleButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  countToggleText: {
+    color: 'white',
+    fontSize: 11,
     fontWeight: '600',
   },
   
@@ -1305,5 +1462,64 @@ const styles = StyleSheet.create({
     fontSize: width < 400 ? 10 : 14,
     color: 'rgba(255, 255, 255, 0.8)',
     textAlign: 'center',
+  },
+  
+  // Achievement modal styles
+  achievementOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10001,
+  },
+  achievementModal: {
+    width: width - 60,
+    maxWidth: 300,
+  },
+  achievementGradient: {
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+  },
+  achievementTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: 'white',
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  achievementIcon: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  achievementName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: 'white',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  achievementDescription: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.9)',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  achievementButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  achievementButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
