@@ -25,6 +25,7 @@ import { useBreathingPatterns, BreathingPattern } from '@/hooks/useBreathingPatt
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
 
 const { width, height } = Dimensions.get('window');
 
@@ -149,6 +150,26 @@ export default function BreathingScreen() {
     }
   };
 
+  // Haptic feedback function
+  const triggerHapticFeedback = (type: 'light' | 'medium' | 'heavy' | 'success') => {
+    if (Platform.OS !== 'web') {
+      switch (type) {
+        case 'light':
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          break;
+        case 'medium':
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          break;
+        case 'heavy':
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+          break;
+        case 'success':
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          break;
+      }
+    }
+  };
+
   const getPhaseText = (phase: BreathingPhase) => {
     if (selectedPattern?.voicePrompts) {
       switch (phase) {
@@ -188,6 +209,7 @@ export default function BreathingScreen() {
       const maxCycles = selectedPattern?.repetitions || 5;
       
       if (nextCycle >= maxCycles && nextPhase === 'inhale') {
+        runOnJS(triggerHapticFeedback)('success');
         return {
           ...prevState,
           isActive: false,
@@ -221,6 +243,7 @@ export default function BreathingScreen() {
       
       if (!hasSpokenPhaseRef.current) {
         runOnJS(speak)(getPhaseText(prevState.phase));
+        runOnJS(triggerHapticFeedback)(prevState.phase === 'inhale' ? 'medium' : 'light');
         hasSpokenPhaseRef.current = true;
         return prevState;
       }
@@ -269,6 +292,7 @@ export default function BreathingScreen() {
 
   const startBreathing = () => {
     hasSpokenPhaseRef.current = false;
+    triggerHapticFeedback('medium');
     setState(prev => ({
       ...prev,
       isActive: true,
@@ -705,15 +729,19 @@ const styles = StyleSheet.create({
   header: { alignItems: 'center', marginBottom: 20 },
   title: { fontSize: 28, fontWeight: '700', color: 'white' },
   
-  patternSection: { marginBottom: 20 },
-  patternRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
+  patternSection: { marginBottom: width < 450 ? 15 : 20 },
+  patternRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    marginBottom: width < 450 ? 12 : 15 
+  },
   patternChip: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: width < 450 ? 10 : 12,
+    paddingVertical: width < 450 ? 6 : 8,
     borderRadius: 20,
     flex: 1,
-    marginHorizontal: 2,
+    marginHorizontal: width < 450 ? 1 : 2,
     alignItems: 'center',
   },
   activeChip: { backgroundColor: 'rgba(255, 255, 255, 0.4)' },
@@ -730,7 +758,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  patternChipText: { color: 'white', fontSize: 12, fontWeight: '600' },
+  patternChipText: { 
+    color: 'white', 
+    fontSize: width < 450 ? 11 : 12, 
+    fontWeight: '600' 
+  },
   patternIndicator: { 
     fontSize: 8, 
     marginLeft: 2,
@@ -759,12 +791,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     flex: 1,
-    marginVertical: 20,
+    marginVertical: width < 450 ? 10 : 20, // Better Galaxy Fold support
   },
   circle: {
-    width: Math.min(width * 0.7, 280),
-    height: Math.min(width * 0.7, 280),
-    borderRadius: Math.min(width * 0.35, 140),
+    width: Math.min(width * (width < 450 ? 0.6 : 0.7), width < 450 ? 220 : 280), // Smaller on Galaxy Fold
+    height: Math.min(width * (width < 450 ? 0.6 : 0.7), width < 450 ? 220 : 280),
+    borderRadius: Math.min(width * (width < 450 ? 0.3 : 0.35), width < 450 ? 110 : 140),
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -772,8 +804,17 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.4)',
   },
   circleInner: { alignItems: 'center' },
-  phaseText: { fontSize: 24, fontWeight: '600', color: 'white', marginBottom: 8 },
-  countText: { fontSize: 42, fontWeight: '300', color: 'white' },
+  phaseText: { 
+    fontSize: width < 450 ? 20 : 24, 
+    fontWeight: '600', 
+    color: 'white', 
+    marginBottom: width < 450 ? 6 : 8 
+  },
+  countText: { 
+    fontSize: width < 450 ? 36 : 42, 
+    fontWeight: '300', 
+    color: 'white' 
+  },
   
   controlsSection: { alignItems: 'center', paddingBottom: 20 },
   progressText: { color: 'white', fontSize: 16, fontWeight: '500', marginBottom: 15 },
