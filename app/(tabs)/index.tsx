@@ -20,7 +20,7 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { Play, Pause, Square, RotateCcw, Plus, X, Edit3 } from 'lucide-react-native';
+import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3 } from 'lucide-react-native';
 import { useBreathingPatterns, BreathingPattern } from '@/hooks/useBreathingPatterns';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Speech from 'expo-speech';
@@ -70,10 +70,20 @@ export default function BreathingScreen() {
   const [voiceHold2, setVoiceHold2] = useState('Hold');
   const [editingVoice, setEditingVoice] = useState<string | null>(null);
   const [countDirection, setCountDirection] = useState<'up' | 'down'>('down');
+  
+  // Simple stats tracking
+  const [sessionStats, setSessionStats] = useState({
+    totalSessions: 0,
+    todaySessions: 0,
+    currentStreak: 0,
+    lastSessionDate: null as Date | null,
+  });
+  const [showStats, setShowStats] = useState(false);
 
   const circleScale = useSharedValue(0.3);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const hasSpokenPhaseRef = useRef(false);
+  const sessionStartTime = useRef<Date | null>(null);
 
   // Set default pattern when patterns load  
   useEffect(() => {
@@ -104,10 +114,11 @@ export default function BreathingScreen() {
     }
   }, [patterns, loading]);
 
-  // Load custom labels from settings
+  // Load custom labels and stats from settings
   useEffect(() => {
     loadCustomLabels();
     loadCountDirection();
+    loadSessionStats();
   }, []);
 
   // Reload settings when screen comes into focus
@@ -137,6 +148,72 @@ export default function BreathingScreen() {
     } catch (error) {
       console.log('Error loading count direction:', error);
     }
+  };
+
+  const loadSessionStats = async () => {
+    try {
+      const savedStats = await AsyncStorage.getItem('sessionStats');
+      if (savedStats) {
+        const stats = JSON.parse(savedStats);
+        // Convert date string back to Date object
+        if (stats.lastSessionDate) {
+          stats.lastSessionDate = new Date(stats.lastSessionDate);
+        }
+        setSessionStats(stats);
+      }
+    } catch (error) {
+      console.log('Error loading session stats:', error);
+    }
+  };
+
+  const saveSessionStats = async (stats: typeof sessionStats) => {
+    try {
+      await AsyncStorage.setItem('sessionStats', JSON.stringify(stats));
+    } catch (error) {
+      console.log('Error saving session stats:', error);
+    }
+  };
+
+  const updateSessionStats = () => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const lastSessionDay = sessionStats.lastSessionDate 
+      ? new Date(sessionStats.lastSessionDate.getFullYear(), sessionStats.lastSessionDate.getMonth(), sessionStats.lastSessionDate.getDate())
+      : null;
+    
+    let newStats = {
+      totalSessions: sessionStats.totalSessions + 1,
+      todaySessions: sessionStats.todaySessions,
+      currentStreak: sessionStats.currentStreak,
+      lastSessionDate: now,
+    };
+
+    // Update today's sessions
+    if (!lastSessionDay || lastSessionDay.getTime() === today.getTime()) {
+      newStats.todaySessions = sessionStats.todaySessions + 1;
+    } else {
+      newStats.todaySessions = 1;
+    }
+
+    // Update streak
+    if (!lastSessionDay) {
+      newStats.currentStreak = 1;
+    } else {
+      const daysDiff = Math.floor((today.getTime() - lastSessionDay.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysDiff === 0) {
+        // Same day, streak continues
+        newStats.currentStreak = sessionStats.currentStreak;
+      } else if (daysDiff === 1) {
+        // Next day, extend streak
+        newStats.currentStreak = sessionStats.currentStreak + 1;
+      } else {
+        // Gap in days, reset streak
+        newStats.currentStreak = 1;
+      }
+    }
+
+    setSessionStats(newStats);
+    saveSessionStats(newStats);
   };
 
   // Voice synthesis function
@@ -210,6 +287,7 @@ export default function BreathingScreen() {
       
       if (nextCycle >= maxCycles && nextPhase === 'inhale') {
         runOnJS(triggerHapticFeedback)('success');
+        runOnJS(updateSessionStats)();
         return {
           ...prevState,
           isActive: false,
@@ -218,6 +296,11 @@ export default function BreathingScreen() {
           count: 0,
           cycle: 0,
         };
+      }
+      
+      // Update stats for each completed cycle (when returning to inhale)
+      if (nextPhase === 'inhale' && nextCycle > prevState.cycle) {
+        runOnJS(updateSessionStats)();
       }
       
       return {
@@ -292,6 +375,7 @@ export default function BreathingScreen() {
 
   const startBreathing = () => {
     hasSpokenPhaseRef.current = false;
+    sessionStartTime.current = new Date();
     triggerHapticFeedback('medium');
     setState(prev => ({
       ...prev,
@@ -460,7 +544,17 @@ export default function BreathingScreen() {
           
           {/* Header */}
           <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <TouchableOpacity 
+                style={styles.statsButton}
+                onPress={() => setShowStats(true)}
+              >
+                <BarChart3 size={20} color="white" />
+                <Text style={styles.statsButtonText}>Stats</Text>
+              </TouchableOpacity>
+            </View>
             <Text style={styles.title}>Breathe</Text>
+            <View style={styles.headerRight} />
           </View>
 
           {/* Pattern Selection - Recent 4 patterns only */}
@@ -555,6 +649,54 @@ export default function BreathingScreen() {
           </View>
         </View>
       </LinearGradient>
+
+      {/* Stats Modal */}
+      {showStats && (
+        <View style={styles.modalFixedOverlay}>
+          <View style={styles.modalBackground}>
+            <View style={styles.modalContainer}>
+              <LinearGradient
+                colors={['#667eea', '#764ba2']}
+                style={styles.modal}
+              >
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Your Progress</Text>
+                  <TouchableOpacity onPress={() => setShowStats(false)} style={styles.closeButton}>
+                    <X size={width < 400 ? 16 : 24} color="white" />
+                  </TouchableOpacity>
+                </View>
+                
+                <View style={styles.statsContent}>
+                  <View style={styles.statCard}>
+                    <Text style={styles.statNumber}>{sessionStats.totalSessions}</Text>
+                    <Text style={styles.statLabel}>Total Sessions</Text>
+                  </View>
+                  
+                  <View style={styles.statCard}>
+                    <Text style={styles.statNumber}>{sessionStats.todaySessions}</Text>
+                    <Text style={styles.statLabel}>Today's Sessions</Text>
+                  </View>
+                  
+                  <View style={styles.statCard}>
+                    <Text style={styles.statNumber}>{sessionStats.currentStreak}</Text>
+                    <Text style={styles.statLabel}>Current Streak</Text>
+                    <Text style={styles.statSubLabel}>days</Text>
+                  </View>
+                  
+                  {sessionStats.lastSessionDate && (
+                    <View style={styles.statCard}>
+                      <Text style={styles.statText}>Last Session</Text>
+                      <Text style={styles.statSubLabel}>
+                        {sessionStats.lastSessionDate.toLocaleDateString()}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </LinearGradient>
+            </View>
+          </View>
+        </View>
+      )}
 
       {/* Create Pattern Modal - Fixed position overlay */}
       {showCreateModal && (
@@ -726,8 +868,31 @@ const styles = StyleSheet.create({
   },
   resetButtonText: { color: 'white', fontSize: 16, fontWeight: '600' },
   
-  header: { alignItems: 'center', marginBottom: 20 },
-  title: { fontSize: 28, fontWeight: '700', color: 'white' },
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: 20 
+  },
+  headerLeft: { flex: 1 },
+  headerRight: { flex: 1 },
+  title: { fontSize: 28, fontWeight: '700', color: 'white', textAlign: 'center' },
+  statsButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  statsButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
   
   patternSection: { marginBottom: width < 450 ? 15 : 20 },
   patternRow: { 
@@ -1029,4 +1194,68 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   createPatternButtonText: { color: 'white', fontSize: 16, fontWeight: '600' },
+  
+  // Stats modal styles - responsive for Galaxy Fold
+  modalContainer: {
+    width: width < 400 ? width - 5 : width - 60, // Ultra compact for Galaxy Fold folded
+    maxHeight: width < 400 ? height * 0.4 : height * 0.6,
+    marginHorizontal: width < 400 ? 2.5 : 10,
+  },
+  modal: {
+    borderRadius: width < 400 ? 6 : 20,
+    padding: width < 400 ? 6 : 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: width < 400 ? 6 : 20,
+  },
+  modalTitle: {
+    fontSize: width < 400 ? 16 : 24,
+    fontWeight: '700',
+    color: 'white',
+  },
+  closeButton: {
+    width: width < 400 ? 28 : 40,
+    height: width < 400 ? 28 : 40,
+    borderRadius: width < 400 ? 14 : 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  statsContent: {
+    gap: width < 400 ? 4 : 16,
+  },
+  statCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: width < 400 ? 6 : 16,
+    padding: width < 400 ? 6 : 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  statNumber: {
+    fontSize: width < 400 ? 20 : 36,
+    fontWeight: '700',
+    color: 'white',
+    marginBottom: width < 400 ? 1 : 4,
+  },
+  statLabel: {
+    fontSize: width < 400 ? 12 : 16,
+    fontWeight: '600',
+    color: 'white',
+    textAlign: 'center',
+  },
+  statText: {
+    fontSize: width < 400 ? 14 : 18,
+    fontWeight: '600',
+    color: 'white',
+    marginBottom: 4,
+  },
+  statSubLabel: {
+    fontSize: width < 400 ? 10 : 14,
+    color: 'rgba(255, 255, 255, 0.8)',
+    textAlign: 'center',
+  },
 });
