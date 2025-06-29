@@ -20,7 +20,7 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { Play, Pause, Square, RotateCcw, Plus, X, CreditCard as Edit3, ChartBar as BarChart3, Trophy, Eye, Users, Brain, Target, Mic } from 'lucide-react-native';
+import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3, Trophy, Eye, Users, Brain, Target, Mic } from 'lucide-react-native';
 import { useBreathingPatterns, BreathingPattern } from '@/hooks/useBreathingPatterns';
 import { useGamification } from '@/hooks/useGamification';
 import { useAREnvironments } from '@/hooks/useAREnvironments';
@@ -35,19 +35,10 @@ import SocialBreathingRooms from '@/components/SocialBreathingRooms';
 import AIMoodDetector from '@/components/AIMoodDetector';
 import ChallengesPanel from '@/components/ChallengesPanel';
 import SocialSharingModal from '@/components/SocialSharingModal';
+// Temporarily disable on mobile for debugging
 import VoiceAssistantModal from '@/components/VoiceAssistantModal';
 import { useMoodDetection } from '@/hooks/useMoodDetection';
 import { useBreathingChallenges } from '@/hooks/useBreathingChallenges';
-
-// Platform-specific haptics import
-let Haptics: any = null;
-if (Platform.OS !== 'web') {
-  try {
-    Haptics = require('expo-haptics');
-  } catch (error) {
-    console.log('Haptics not available');
-  }
-}
 
 const { width, height } = Dimensions.get('window');
 
@@ -217,9 +208,33 @@ export default function BreathingScreen() {
   };
 
   const triggerHapticFeedback = (type: 'light' | 'medium' | 'heavy' | 'success' = 'light') => {
-    if (!hapticsEnabled || Platform.OS === 'web' || !Haptics) return;
+    if (!hapticsEnabled || Platform.OS === 'web') return;
     
+    // Web-compatible haptic feedback simulation
+    if (Platform.OS === 'web') {
+      // Use vibration API if available
+      if ('vibrate' in navigator) {
+        switch (type) {
+          case 'light':
+            navigator.vibrate(10);
+            break;
+          case 'medium':
+            navigator.vibrate(20);
+            break;
+          case 'heavy':
+            navigator.vibrate(50);
+            break;
+          case 'success':
+            navigator.vibrate([10, 50, 10]);
+            break;
+        }
+      }
+      return;
+    }
+    
+    // For mobile platforms, use expo-haptics if available
     try {
+      const Haptics = require('expo-haptics');
       switch (type) {
         case 'light':
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -266,23 +281,6 @@ export default function BreathingScreen() {
       case 'hold1': return customLabels.hold;
       case 'exhale': return customLabels.exhale;
       case 'hold2': return customLabels.hold;
-    }
-  };
-
-  // NEW: Function to get the display count for the breathing circle
-  const getDisplayCount = () => {
-    if (!state.isActive || !selectedPattern) return null;
-    
-    const phaseIndex = ['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase);
-    const phaseDuration = selectedPattern.ratio[phaseIndex];
-    
-    // Don't show count for phases with 0 duration
-    if (phaseDuration === 0) return null;
-    
-    if (countDirection === 'up') {
-      return state.count + 1;
-    } else {
-      return phaseDuration - state.count;
     }
   };
 
@@ -368,22 +366,31 @@ export default function BreathingScreen() {
         return prevState;
       }
       
-      if (!hasSpokenPhaseRef.current) {
+      // Speak phase name only at the beginning
+      if (prevState.count === 0 && !hasSpokenPhaseRef.current) {
         runOnJS(speak)(getPhaseText(prevState.phase));
         runOnJS(triggerHapticFeedback)(prevState.phase === 'inhale' ? 'medium' : 'light');
         hasSpokenPhaseRef.current = true;
-        return prevState;
       }
       
       const newCount = prevState.count + 1;
       
-      // Audio counting logic - speak the number that will be displayed
-      const displayNumber = countDirectionRef.current === 'up' ? newCount : phaseDuration - newCount + 1;
-      runOnJS(speak)(displayNumber.toString());
+      // Speak count numbers (but not the phase name)
+      if (newCount <= phaseDuration) {
+        const countToSpeak = countDirectionRef.current === 'up' 
+          ? newCount 
+          : phaseDuration - newCount + 1;
+        
+        // Only speak if count is valid and greater than 0
+        if (countToSpeak > 0) {
+          runOnJS(speak)(countToSpeak.toString());
+        }
+      }
       
       // Check if phase is complete
       if (newCount >= phaseDuration) {
         runOnJS(nextPhase)();
+        return prevState;
       }
       
       return {
@@ -638,6 +645,22 @@ export default function BreathingScreen() {
     triggerHapticFeedback('light');
   };
 
+  // Calculate display count for visual feedback
+  const getDisplayCount = () => {
+    if (!state.isActive || !selectedPattern) return null;
+    
+    const phaseIndex = ['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase);
+    const phaseDuration = selectedPattern.ratio[phaseIndex];
+    
+    if (phaseDuration === 0) return null;
+    
+    if (countDirection === 'up') {
+      return Math.min(state.count + 1, phaseDuration);
+    } else {
+      return Math.max(phaseDuration - state.count, 1);
+    }
+  };
+
   if (loading) {
     return (
       <LinearGradient colors={['#667eea', '#764ba2']} style={styles.container}>
@@ -673,8 +696,6 @@ export default function BreathingScreen() {
       </LinearGradient>
     );
   }
-
-  const displayCount = getDisplayCount();
 
   return (
     <>
@@ -796,8 +817,10 @@ export default function BreathingScreen() {
             <Animated.View style={[styles.circle, circleStyle]}>
               <View style={styles.circleInner}>
                 <Text style={styles.phaseText}>{getPhaseText(state.phase)}</Text>
-                {displayCount !== null && (
-                  <Text style={styles.countText}>{displayCount}</Text>
+                {state.isActive && selectedPattern.ratio[['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase)] > 0 && (
+                  <Text style={styles.countText}>
+                    {getDisplayCount()}
+                  </Text>
                 )}
               </View>
             </Animated.View>
