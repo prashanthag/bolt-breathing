@@ -20,7 +20,7 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { Play, Pause, Square, RotateCcw, Plus, X, CreditCard as Edit3, ChartBar as BarChart3, Trophy, Eye, Users, Brain, Target, Mic } from 'lucide-react-native';
+import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3, Trophy, Eye, Users, Brain, Target, Mic } from 'lucide-react-native';
 import { useBreathingPatterns, BreathingPattern } from '@/hooks/useBreathingPatterns';
 import { useGamification } from '@/hooks/useGamification';
 import { useAREnvironments } from '@/hooks/useAREnvironments';
@@ -77,7 +77,6 @@ export default function BreathingScreen() {
     challenges,
     streakData
   } = useBreathingChallenges();
-  
   const [selectedPattern, setSelectedPattern] = useState<BreathingPattern | null>(null);
   const [customLabels, setCustomLabels] = useState({
     inhale: 'Inhale',
@@ -144,6 +143,7 @@ export default function BreathingScreen() {
       const timeout = setTimeout(() => {
         console.warn('Loading timeout - forcing default patterns');
         if (patterns.length === 0) {
+          // Force load default patterns if still empty
           console.log('No patterns loaded, using defaults');
         }
       }, 5000);
@@ -263,6 +263,24 @@ export default function BreathingScreen() {
     }
   };
 
+  // Fixed function to get the display count for the circle
+  const getDisplayCount = () => {
+    if (!state.isActive || !selectedPattern) return null;
+    
+    const phaseIndex = ['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase);
+    const phaseDuration = selectedPattern.ratio[phaseIndex];
+    
+    // Don't show count for phases with 0 duration
+    if (phaseDuration === 0) return null;
+    
+    // Calculate the display number based on count direction
+    if (countDirection === 'up') {
+      return state.count + 1;
+    } else {
+      return phaseDuration - state.count;
+    }
+  };
+
   const animateCircle = (phase: BreathingPhase, duration: number) => {
     const targetScale = phase === 'inhale' ? 1 : phase === 'exhale' ? 0.3 : circleScale.value;
     circleScale.value = withTiming(targetScale, {
@@ -340,13 +358,14 @@ export default function BreathingScreen() {
       const phaseIndex = ['inhale', 'hold1', 'exhale', 'hold2'].indexOf(prevState.phase);
       const phaseDuration = selectedPattern.ratio[phaseIndex];
       
+      // Skip phases with 0 duration
       if (phaseDuration === 0) {
         runOnJS(nextPhase)();
         return prevState;
       }
       
       // Speak phase name only at the beginning
-      if (prevState.count === 0 && !hasSpokenPhaseRef.current) {
+      if (!hasSpokenPhaseRef.current) {
         runOnJS(speak)(getPhaseText(prevState.phase));
         runOnJS(triggerHapticFeedback)(prevState.phase === 'inhale' ? 'medium' : 'light');
         hasSpokenPhaseRef.current = true;
@@ -354,16 +373,12 @@ export default function BreathingScreen() {
       
       const newCount = prevState.count + 1;
       
-      // Audio counting logic - speak numbers during the phase
-      if (newCount <= phaseDuration) {
-        const countToSpeak = countDirectionRef.current === 'up' 
-          ? newCount 
-          : phaseDuration - newCount + 1;
-        
-        // Only speak if we have a valid count
-        if (countToSpeak > 0) {
-          runOnJS(speak)(countToSpeak.toString());
-        }
+      // Speak the count number
+      if (countDirectionRef.current === 'up') {
+        runOnJS(speak)(newCount.toString());
+      } else {
+        const remainingCount = phaseDuration - newCount + 1;
+        runOnJS(speak)(remainingCount.toString());
       }
       
       // Check if phase is complete
@@ -624,22 +639,6 @@ export default function BreathingScreen() {
     triggerHapticFeedback('light');
   };
 
-  // Calculate the display count for the circle
-  const getDisplayCount = () => {
-    if (!state.isActive || !selectedPattern) return null;
-    
-    const phaseIndex = ['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase);
-    const phaseDuration = selectedPattern.ratio[phaseIndex];
-    
-    if (phaseDuration === 0) return null;
-    
-    if (countDirection === 'up') {
-      return state.count + 1;
-    } else {
-      return Math.max(0, phaseDuration - state.count);
-    }
-  };
-
   if (loading) {
     return (
       <LinearGradient colors={['#667eea', '#764ba2']} style={styles.container}>
@@ -675,6 +674,8 @@ export default function BreathingScreen() {
       </LinearGradient>
     );
   }
+
+  const displayCount = getDisplayCount();
 
   return (
     <>
@@ -796,9 +797,9 @@ export default function BreathingScreen() {
             <Animated.View style={[styles.circle, circleStyle]}>
               <View style={styles.circleInner}>
                 <Text style={styles.phaseText}>{getPhaseText(state.phase)}</Text>
-                {state.isActive && selectedPattern.ratio[['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase)] > 0 && (
+                {displayCount !== null && (
                   <Text style={styles.countText}>
-                    {getDisplayCount()}
+                    {displayCount}
                   </Text>
                 )}
               </View>
