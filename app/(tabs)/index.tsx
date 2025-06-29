@@ -20,7 +20,7 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { Play, Pause, Square, RotateCcw, Plus, X, CreditCard as Edit3, ChartBar as BarChart3, Trophy, Eye, Users, Brain, Target, Mic } from 'lucide-react-native';
+import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3, Trophy, Eye, Users, Brain, Target, Mic } from 'lucide-react-native';
 import { useBreathingPatterns, BreathingPattern } from '@/hooks/useBreathingPatterns';
 import { useGamification } from '@/hooks/useGamification';
 import { useAREnvironments } from '@/hooks/useAREnvironments';
@@ -35,7 +35,6 @@ import SocialBreathingRooms from '@/components/SocialBreathingRooms';
 import AIMoodDetector from '@/components/AIMoodDetector';
 import ChallengesPanel from '@/components/ChallengesPanel';
 import SocialSharingModal from '@/components/SocialSharingModal';
-// Temporarily disable on mobile for debugging
 import VoiceAssistantModal from '@/components/VoiceAssistantModal';
 import { useMoodDetection } from '@/hooks/useMoodDetection';
 import { useBreathingChallenges } from '@/hooks/useBreathingChallenges';
@@ -50,7 +49,7 @@ interface BreathingState {
   cycle: number;
   isActive: boolean;
   isPaused: boolean;
-  hasSpokenPhase: boolean; // Move this into state for better tracking
+  hasSpokenPhase: boolean;
 }
 
 export default function BreathingScreen() {
@@ -331,11 +330,12 @@ export default function BreathingScreen() {
         phase: nextPhase,
         count: 0,
         cycle: nextCycle,
-        hasSpokenPhase: false, // Reset for new phase
+        hasSpokenPhase: false,
       };
     });
   };
 
+  // COMPLETELY NEW SIMPLE TICK FUNCTION
   const tick = () => {
     setState(prevState => {
       if (!prevState.isActive || prevState.isPaused || !selectedPattern) return prevState;
@@ -349,16 +349,18 @@ export default function BreathingScreen() {
         return prevState;
       }
       
-      // Speak phase name only once at the beginning
+      // First tick of phase - speak phase name
       if (!prevState.hasSpokenPhase) {
         runOnJS(speak)(getPhaseText(prevState.phase));
         runOnJS(triggerHapticFeedback)(prevState.phase === 'inhale' ? 'medium' : 'light');
         return {
           ...prevState,
           hasSpokenPhase: true,
+          count: 1
         };
       }
       
+      // Subsequent ticks - count and speak numbers
       const newCount = prevState.count + 1;
       
       // Speak the count number
@@ -372,6 +374,7 @@ export default function BreathingScreen() {
       // Check if phase is complete
       if (newCount >= phaseDuration) {
         runOnJS(nextPhase)();
+        return prevState;
       }
       
       return {
@@ -379,27 +382,6 @@ export default function BreathingScreen() {
         count: newCount,
       };
     });
-  };
-
-  // Calculate what number to display
-  const getDisplayCount = () => {
-    if (!state.isActive || !selectedPattern) return null;
-    
-    const phaseIndex = ['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase);
-    const phaseDuration = selectedPattern.ratio[phaseIndex];
-    
-    // Don't show count for phases with 0 duration
-    if (phaseDuration === 0) return null;
-    
-    // Don't show count until phase name has been spoken
-    if (!state.hasSpokenPhase) return null;
-    
-    // Calculate the display count
-    if (countDirection === 'up') {
-      return state.count + 1;
-    } else {
-      return phaseDuration - state.count;
-    }
   };
 
   useEffect(() => {
@@ -420,7 +402,7 @@ export default function BreathingScreen() {
         clearInterval(intervalRef.current);
       }
     };
-  }, [state.phase, state.isActive, state.isPaused, selectedPattern, state.hasSpokenPhase]);
+  }, [state.phase, state.isActive, state.isPaused, selectedPattern]);
 
   const startBreathing = () => {
     setSessionStartTime(new Date());
@@ -647,6 +629,23 @@ export default function BreathingScreen() {
     triggerHapticFeedback('light');
   };
 
+  // SIMPLE DISPLAY COUNT FUNCTION
+  const getDisplayCount = () => {
+    if (!state.isActive || !selectedPattern) return null;
+    
+    const phaseIndex = ['inhale', 'hold1', 'exhale', 'hold2'].indexOf(state.phase);
+    const phaseDuration = selectedPattern.ratio[phaseIndex];
+    
+    // Don't show count for phases with 0 duration or before phase is spoken
+    if (phaseDuration === 0 || !state.hasSpokenPhase) return null;
+    
+    if (countDirection === 'up') {
+      return state.count;
+    } else {
+      return phaseDuration - state.count + 1;
+    }
+  };
+
   if (loading) {
     return (
       <LinearGradient colors={['#667eea', '#764ba2']} style={styles.container}>
@@ -682,8 +681,6 @@ export default function BreathingScreen() {
       </LinearGradient>
     );
   }
-
-  const displayCount = getDisplayCount();
 
   return (
     <>
@@ -805,8 +802,10 @@ export default function BreathingScreen() {
             <Animated.View style={[styles.circle, circleStyle]}>
               <View style={styles.circleInner}>
                 <Text style={styles.phaseText}>{getPhaseText(state.phase)}</Text>
-                {displayCount !== null && (
-                  <Text style={styles.countText}>{displayCount}</Text>
+                {getDisplayCount() !== null && (
+                  <Text style={styles.countText}>
+                    {getDisplayCount()}
+                  </Text>
                 )}
               </View>
             </Animated.View>
