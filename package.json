@@ -6,9 +6,7 @@
   "scripts": {
     "dev": "EXPO_NO_TELEMETRY=1 expo start",
     "build:web": "expo export --platform web",
-    "lint": "expo lint",
-    "install": "yarn install",
-    "start": "yarn dev"
+    "lint": "expo lint"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",
@@ -53,6 +51,5 @@
     "eslint-config-expo": "~9.2.0",
     "metro": "^0.82.0",
     "typescript": "~5.8.3"
-  },
-  "packageManager": "yarn@1.22.19"
+  }
 }
