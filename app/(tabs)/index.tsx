@@ -20,7 +20,7 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { Play, Pause, Square, RotateCcw, Plus, X, CreditCard as Edit3, ChartBar as BarChart3, Trophy, Eye, Users, Brain, Target, Mic } from 'lucide-react-native';
+import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3, Trophy, Eye, Users, Brain, Target, Mic } from 'lucide-react-native';
 import { useBreathingPatterns, BreathingPattern } from '@/hooks/useBreathingPatterns';
 import { useGamification } from '@/hooks/useGamification';
 import { useAREnvironments } from '@/hooks/useAREnvironments';
@@ -38,6 +38,16 @@ import SocialSharingModal from '@/components/SocialSharingModal';
 import VoiceAssistantModal from '@/components/VoiceAssistantModal';
 import { useMoodDetection } from '@/hooks/useMoodDetection';
 import { useBreathingChallenges } from '@/hooks/useBreathingChallenges';
+
+// Platform-specific haptics import
+let Haptics: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    Haptics = require('expo-haptics');
+  } catch (error) {
+    console.log('Haptics not available');
+  }
+}
 
 const { width, height } = Dimensions.get('window');
 
@@ -207,26 +217,22 @@ export default function BreathingScreen() {
   };
 
   const triggerHapticFeedback = (type: 'light' | 'medium' | 'heavy' | 'success' = 'light') => {
-    if (!hapticsEnabled || Platform.OS === 'web') return;
+    if (!hapticsEnabled || Platform.OS === 'web' || !Haptics) return;
     
     try {
-      // Only import and use haptics on native platforms
-      if (Platform.OS !== 'web') {
-        const Haptics = require('expo-haptics');
-        switch (type) {
-          case 'light':
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            break;
-          case 'medium':
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            break;
-          case 'heavy':
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-            break;
-          case 'success':
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            break;
-        }
+      switch (type) {
+        case 'light':
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          break;
+        case 'medium':
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          break;
+        case 'heavy':
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+          break;
+        case 'success':
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          break;
       }
     } catch (error) {
       console.log('Haptic feedback error:', error);
@@ -263,7 +269,7 @@ export default function BreathingScreen() {
     }
   };
 
-  // Fixed function to get the display count for the circle
+  // NEW: Function to get the display count for the breathing circle
   const getDisplayCount = () => {
     if (!state.isActive || !selectedPattern) return null;
     
@@ -273,7 +279,6 @@ export default function BreathingScreen() {
     // Don't show count for phases with 0 duration
     if (phaseDuration === 0) return null;
     
-    // Calculate the display number based on count direction
     if (countDirection === 'up') {
       return state.count + 1;
     } else {
@@ -358,33 +363,27 @@ export default function BreathingScreen() {
       const phaseIndex = ['inhale', 'hold1', 'exhale', 'hold2'].indexOf(prevState.phase);
       const phaseDuration = selectedPattern.ratio[phaseIndex];
       
-      // Skip phases with 0 duration
       if (phaseDuration === 0) {
         runOnJS(nextPhase)();
         return prevState;
       }
       
-      // Speak phase name only at the beginning
       if (!hasSpokenPhaseRef.current) {
         runOnJS(speak)(getPhaseText(prevState.phase));
         runOnJS(triggerHapticFeedback)(prevState.phase === 'inhale' ? 'medium' : 'light');
         hasSpokenPhaseRef.current = true;
+        return prevState;
       }
       
       const newCount = prevState.count + 1;
       
-      // Speak the count number
-      if (countDirectionRef.current === 'up') {
-        runOnJS(speak)(newCount.toString());
-      } else {
-        const remainingCount = phaseDuration - newCount + 1;
-        runOnJS(speak)(remainingCount.toString());
-      }
+      // Audio counting logic - speak the number that will be displayed
+      const displayNumber = countDirectionRef.current === 'up' ? newCount : phaseDuration - newCount + 1;
+      runOnJS(speak)(displayNumber.toString());
       
       // Check if phase is complete
       if (newCount >= phaseDuration) {
         runOnJS(nextPhase)();
-        return prevState;
       }
       
       return {
@@ -798,9 +797,7 @@ export default function BreathingScreen() {
               <View style={styles.circleInner}>
                 <Text style={styles.phaseText}>{getPhaseText(state.phase)}</Text>
                 {displayCount !== null && (
-                  <Text style={styles.countText}>
-                    {displayCount}
-                  </Text>
+                  <Text style={styles.countText}>{displayCount}</Text>
                 )}
               </View>
             </Animated.View>
