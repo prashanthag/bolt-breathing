@@ -20,7 +20,7 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { Play, Pause, Square, RotateCcw, Plus, X, Edit3, BarChart3, Trophy, Eye, Users, Brain, Target, Mic } from 'lucide-react-native';
+import { Play, Pause, Square, RotateCcw, Plus, X, CreditCard as Edit3, ChartBar as BarChart3, Trophy, Eye, Users, Brain, Target, Mic } from 'lucide-react-native';
 import { useBreathingPatterns, BreathingPattern } from '@/hooks/useBreathingPatterns';
 import { useGamification } from '@/hooks/useGamification';
 import { useAREnvironments } from '@/hooks/useAREnvironments';
